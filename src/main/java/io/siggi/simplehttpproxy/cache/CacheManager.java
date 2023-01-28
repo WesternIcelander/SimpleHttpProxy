@@ -1,5 +1,6 @@
 package io.siggi.simplehttpproxy.cache;
 
+import io.siggi.simplehttpproxy.util.Hash;
 import io.siggi.simplehttpproxy.util.HttpHeader;
 import io.siggi.simplehttpproxy.util.Util;
 
@@ -44,7 +45,7 @@ public class CacheManager {
     }
 
     public CacheBuilder createCache(String cacheIdentifier, HttpHeader requestHeader, HttpHeader responseHeader) throws IOException {
-        String cacheHash = Util.byteToHex(Util.sha1(cacheIdentifier));
+        String cacheHash = Util.byteToHex(Hash.hash(Hash.sha1(), cacheIdentifier));
         if (shouldCacheResponse(requestHeader, responseHeader)) {
             return new CacheBuilder(getCacheDir(cacheHash), tmp, requestHeader, responseHeader);
         } else {
@@ -73,7 +74,7 @@ public class CacheManager {
         if (maxAge <= 0L) {
             return null;
         }
-        String cacheHash = Util.byteToHex(Util.sha1(cacheIdentifier));
+        String cacheHash = Util.byteToHex(Hash.hash(Hash.sha1(), cacheIdentifier));
         File cacheDir = getCacheDir(cacheHash);
         if (!cacheDir.exists()) {
             return null;

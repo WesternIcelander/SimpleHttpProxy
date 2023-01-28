@@ -5,7 +5,6 @@ import io.siggi.simplehttpproxy.exception.TooBigException;
 import javax.net.ssl.SSLSocketFactory;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -13,7 +12,6 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.List;
@@ -239,30 +237,6 @@ public class Util {
         } catch (NumberFormatException nfe) {
             throw new IllegalArgumentException();
         }
-    }
-
-    public static byte[] sha1(File file) throws IOException {
-        try (FileInputStream in = new FileInputStream(file)) {
-            MessageDigest md;
-            try {
-                md = MessageDigest.getInstance("SHA-1");
-            } catch (NoSuchAlgorithmException ex) {
-                throw new RuntimeException(ex);
-            }
-            copyToDigest(in, md);
-            return md.digest();
-        }
-    }
-
-    public static byte[] sha1(String str) {
-        MessageDigest md;
-        try {
-            md = MessageDigest.getInstance("SHA-1");
-        } catch (NoSuchAlgorithmException ex) {
-            throw new RuntimeException(ex);
-        }
-        md.update(str.getBytes(StandardCharsets.UTF_8));
-        return md.digest();
     }
 
     public static boolean parseBoolean(String string) {

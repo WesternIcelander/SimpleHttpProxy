@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
+import java.net.SocketException;
 import java.net.SocketTimeoutException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
@@ -714,7 +715,19 @@ public class ProxyHandler {
                     break;
             }
         } catch (Exception e) {
-            log(e);
+            boolean logException = true;
+            if (e instanceof SocketException) {
+                String message = e.getMessage();
+                if (message != null) switch (message) {
+                    case "Socket is closed":
+                    case "Connection reset":
+                    case "Broken pipe (Write failed)":
+                        logException = false;
+                        break;
+                }
+            }
+            if (logException)
+                log(e);
         } finally {
             if (receivedRequest && !wroteToClient) {
                 try {

@@ -16,41 +16,27 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class CloudFlare {
-
-    private static final List<IP> localCloudFlareRanges = new ArrayList<>();
     private static final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
     private static final Lock readLock = lock.readLock();
     private static final Lock writeLock = lock.writeLock();
-    private static final List<IP> remoteCloudFlareRanges = new ArrayList<>();
+
+    private static final List<IP> cloudFlareRanges = new ArrayList<>();
     private static final File ipListFile = new File("cloudflare-ips.txt");
     private static final boolean enabled;
-    private static long lastRemoteUpdate = 0L;
-    private static boolean updatingRemoteRanges = false;
+    private static long lastUpdate = 0L;
+    private static boolean updatingRanges = false;
 
     static {
         boolean enableCF = false;
         writeLock.lock();
         try {
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(CloudFlare.class.getResourceAsStream("/cloudflare.txt")))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    if (line.equals("")) {
-                        continue;
-                    }
-                    try {
-                        localCloudFlareRanges.add(IP.getIP(line));
-                    } catch (Exception e) {
-                    }
-                }
-            } catch (Exception e) {
-            }
             if (ipListFile.exists()) {
                 enableCF = true;
                 try (BufferedReader reader = new BufferedReader(new FileReader(ipListFile))) {
                     String line = reader.readLine();
-                    lastRemoteUpdate = Long.parseLong(line);
+                    lastUpdate = Long.parseLong(line);
                     while ((line = reader.readLine()) != null) {
-                        remoteCloudFlareRanges.add(IP.getIP(line));
+                        cloudFlareRanges.add(IP.getIP(line));
                     }
                 } catch (Exception e) {
                 }
@@ -68,12 +54,12 @@ public class CloudFlare {
 
     public static boolean isCloudFlare(String address) {
         do {
-            a:
+            readBlock:
             {
                 readLock.lock();
                 try {
                     if (shouldUpdateRemoteRanges()) {
-                        break a;
+                        break readBlock;
                     }
                     IP check;
                     try {
@@ -81,17 +67,9 @@ public class CloudFlare {
                     } catch (IllegalArgumentException e) {
                         return false;
                     }
-                    if (remoteCloudFlareRanges.isEmpty()) {
-                        for (IP ip : localCloudFlareRanges) {
-                            if (ip.contains(check)) {
-                                return true;
-                            }
-                        }
-                    } else {
-                        for (IP ip : remoteCloudFlareRanges) {
-                            if (ip.contains(check)) {
-                                return true;
-                            }
+                    for (IP ip : cloudFlareRanges) {
+                        if (ip.contains(check)) {
+                            return true;
                         }
                     }
                     return false;
@@ -111,11 +89,11 @@ public class CloudFlare {
     }
 
     private static boolean shouldUpdateRemoteRanges() {
-        return enabled && !updatingRemoteRanges && (System.currentTimeMillis() - lastRemoteUpdate) > (86400000L * 7L);
+        return enabled && !updatingRanges && (System.currentTimeMillis() - lastUpdate) > (86400000L * 7L);
     }
 
     private static void updateRemoteRanges() {
-        updatingRemoteRanges = true;
+        updatingRanges = true;
         new Thread(CloudFlare::doUpdateRemoteRanges, "CloudFlare-Update").start();
     }
 
@@ -146,8 +124,8 @@ public class CloudFlare {
             }
             writeLock.lock();
             try {
-                remoteCloudFlareRanges.clear();
-                remoteCloudFlareRanges.addAll(newOnes);
+                cloudFlareRanges.clear();
+                cloudFlareRanges.addAll(newOnes);
                 try (FileWriter fw = new FileWriter(ipListFile)) {
                     fw.write(System.currentTimeMillis() + "\n");
                     for (IP ip : newOnes) {
@@ -162,8 +140,8 @@ public class CloudFlare {
         } finally {
             writeLock.lock();
             try {
-                lastRemoteUpdate = System.currentTimeMillis();
-                updatingRemoteRanges = false;
+                lastUpdate = System.currentTimeMillis();
+                updatingRanges = false;
             } finally {
                 writeLock.unlock();
             }

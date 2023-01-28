@@ -145,7 +145,7 @@ public class CacheManager {
     }
 
     public void startCleanupThread() {
-        new Thread(() -> {
+        Thread cleanupThread = new Thread(() -> {
             while (true) {
                 try {
                     cleanup();
@@ -156,7 +156,9 @@ public class CacheManager {
                 } catch (Exception e) {
                 }
             }
-        }, "CacheCleanup").start();
+        }, "CacheCleanup");
+        cleanupThread.setDaemon(true);
+        cleanupThread.start();
     }
 
     private void cleanup() {

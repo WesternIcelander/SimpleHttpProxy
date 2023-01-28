@@ -94,7 +94,9 @@ public class CloudFlare {
 
     private static void updateRemoteRanges() {
         updatingRanges = true;
-        new Thread(CloudFlare::doUpdateRemoteRanges, "CloudFlare-Update").start();
+        Thread updaterThread = new Thread(CloudFlare::doUpdateRemoteRanges, "CloudFlare-Update");
+        updaterThread.setDaemon(true);
+        updaterThread.start();
     }
 
     private static void doUpdateRemoteRanges() {

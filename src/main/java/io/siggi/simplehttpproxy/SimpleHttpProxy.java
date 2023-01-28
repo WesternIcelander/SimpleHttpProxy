@@ -7,9 +7,12 @@ import io.siggi.simplehttpproxy.cache.CacheManager;
 import io.siggi.simplehttpproxy.io.IOUtil;
 import io.siggi.simplehttpproxy.tls.KeyMaster;
 import io.siggi.simplehttpproxy.tls.TlsUtil;
+import io.siggi.simplehttpproxy.updater.AutoUpdater;
+import io.siggi.simplehttpproxy.util.Logger;
 import io.siggi.simplehttpproxy.util.TrustForward;
 import io.siggi.simplehttpproxy.util.Util;
 
+import java.net.InetSocketAddress;
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 import java.io.BufferedReader;
@@ -22,7 +25,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
-import java.io.PrintWriter;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -32,7 +34,6 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
@@ -78,7 +79,7 @@ public class SimpleHttpProxy {
     private final Lock banWriteLock = banLock.writeLock();
     private boolean started = false;
     private SimpleDateFormat sdf = null;
-    private PrintWriter log = null;
+    private Logger logger = null;
     private CacheManager cacheManager = null;
     private boolean transparentProxy = false;
     private long lastLoadFactories = 0L;
@@ -125,17 +126,21 @@ public class SimpleHttpProxy {
         simpleHttpProxy.start();
     }
 
+    private final List<ServerSocket> serverSockets = new ArrayList<>();
+
     private void start() {
         if (started) {
             return;
         }
+        try {
+            Runtime.getRuntime().exec(new String[]{new File("setup-perms").getAbsolutePath()}).waitFor();
+        } catch (Exception e) {
+        }
         rateLimitController = new RateLimitController(new File("ratelimitwhitelist.txt"));
         started = true;
         sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss z");
-        try {
-            log = new PrintWriter(new FileWriter(new File("simplehttpproxy.log"), true), true);
-        } catch (IOException e) {
-        }
+        logger = new Logger(new File("log"));
+        List<Runnable> serverListenerRunnables = new LinkedList<>();
         try (BufferedReader reader = new BufferedReader(new FileReader(new File("ports.txt")))) {
             String line;
             while ((line = reader.readLine()) != null) {
@@ -152,8 +157,11 @@ public class SimpleHttpProxy {
                     } else {
                         secure = false;
                     }
-                    ServerSocket ss = new ServerSocket(Integer.parseInt(line));
-                    new Thread(() -> {
+                    ServerSocket ss = new ServerSocket();
+                    ss.setReuseAddress(true);
+                    ss.bind(new InetSocketAddress((InetAddress) null, Integer.parseInt(line)));
+                    serverSockets.add(ss);
+                    serverListenerRunnables.add(() -> {
                         try {
                             while (true) {
                                 Socket accept = ss.accept();
@@ -164,7 +172,7 @@ public class SimpleHttpProxy {
                             }
                         } catch (Exception e) {
                         }
-                    }).start();
+                    });
                 } catch (Exception e) {
                     log(e);
                 }
@@ -190,8 +198,52 @@ public class SimpleHttpProxy {
                 log(e);
             }
         }
+        logger.start();
+        AutoUpdater.start(this::restartForUpdate);
+        for (Runnable runnable : serverListenerRunnables) {
+            new Thread(runnable).start();
+        }
         cacheManager = new CacheManager(new File("cache"));
         cacheManager.startCleanupThread();
+        if (System.getProperty("launcher", "0").equals("1")) {
+            Thread launcherDataThread = new Thread(() -> {
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(System.in))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        switch (line) {
+                            case "SIGINT":
+                                System.exit(0);
+                                break;
+                            case "SIGTERM":
+                                restartForUpdate();
+                                break;
+                        }
+                    }
+                } catch (Exception e) {
+                }
+            });
+            launcherDataThread.setDaemon(true);
+            launcherDataThread.start();
+        }
+    }
+
+    private void closeAllServerSockets() {
+        for (ServerSocket serverSocket : serverSockets) {
+            try {
+                serverSocket.close();
+            } catch (Exception e) {
+            }
+        }
+    }
+
+    private void restartForUpdate() {
+        logger.stop();
+        closeAllServerSockets();
+        try {
+            Thread.sleep(1000L);
+        } catch (Exception e) {
+        }
+        System.err.println("Launcher-Exit");
     }
 
     String getAddr(int port, String host) {
@@ -669,34 +721,17 @@ public class SimpleHttpProxy {
     }
 
     public void log(String logMessage) {
-        Date d = new Date();
-        if (log != null) {
-            synchronized (logLock) {
-                log.println(sdf.format(d) + ": " + logMessage);
-            }
-        }
+        logger.log(logMessage, null);
         System.err.println(logMessage);
     }
 
     public void log(String msg, Throwable t) {
-        Date d = new Date();
-        if (log != null) {
-            synchronized (logLock) {
-                log.print(sdf.format(d) + ": " + msg + ": ");
-                t.printStackTrace(log);
-            }
-        }
+        logger.log(msg, t);
         t.printStackTrace(System.err);
     }
 
     public void log(Throwable t) {
-        Date d = new Date();
-        if (log != null) {
-            synchronized (logLock) {
-                log.print(sdf.format(d) + ": ");
-                t.printStackTrace(log);
-            }
-        }
+        logger.log(null, t);
         t.printStackTrace(System.err);
     }
 

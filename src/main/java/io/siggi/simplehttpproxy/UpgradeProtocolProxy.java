@@ -29,8 +29,8 @@ public class UpgradeProtocolProxy {
             return;
         }
         started = true;
-        new Thread(this::s1, "UPP-" + id + "-ToServer").start();
-        new Thread(this::s2, "UPP-" + id + "-ToClient").start();
+        ThreadCreator.createThread(this::s1, "UPP-" + id + "-ToServer", false, true).start();
+        ThreadCreator.createThread(this::s2, "UPP-" + id + "-ToClient", false, true).start();
     }
 
     private void s1() {

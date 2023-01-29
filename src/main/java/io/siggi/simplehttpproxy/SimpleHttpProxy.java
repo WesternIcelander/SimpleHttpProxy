@@ -201,12 +201,12 @@ public class SimpleHttpProxy {
         logger.start();
         AutoUpdater.start(this::restartForUpdate);
         for (Runnable runnable : serverListenerRunnables) {
-            new Thread(runnable).start();
+            ThreadCreator.createThread(runnable, null, false, false).start();
         }
         cacheManager = new CacheManager(new File("cache"));
         cacheManager.startCleanupThread();
         if (System.getProperty("launcher", "0").equals("1")) {
-            Thread launcherDataThread = new Thread(() -> {
+            ThreadCreator.createThread(() -> {
                 try (BufferedReader reader = new BufferedReader(new InputStreamReader(System.in))) {
                     String line;
                     while ((line = reader.readLine()) != null) {
@@ -221,9 +221,7 @@ public class SimpleHttpProxy {
                     }
                 } catch (Exception e) {
                 }
-            });
-            launcherDataThread.setDaemon(true);
-            launcherDataThread.start();
+            }, null, true, false).start();
         }
     }
 

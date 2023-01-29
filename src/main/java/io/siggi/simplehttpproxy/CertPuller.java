@@ -61,9 +61,7 @@ public class CertPuller {
             return;
         }
         started = true;
-        thread = new Thread(this::run, "CertPuller");
-        thread.setDaemon(true);
-        thread.start();
+        ThreadCreator.createThread(this::run, "CertPuller", true, false).start();
     }
 
     public void stop() {

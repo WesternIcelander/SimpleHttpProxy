@@ -1,6 +1,7 @@
 package io.siggi.simplehttpproxy.net;
 
 import io.siggi.simplehttpproxy.SimpleHttpProxy;
+import io.siggi.simplehttpproxy.ThreadCreator;
 import io.siggi.simplehttpproxy.util.Util;
 
 import java.io.IOException;
@@ -30,7 +31,7 @@ public class SslProxy {
             throw new IllegalStateException();
         }
         started = true;
-        (new Thread(this::serverBound)).start();
+        ThreadCreator.createThread(this::serverBound, null, false, true).start();
     }
 
     public void close() {
@@ -53,7 +54,7 @@ public class SslProxy {
             InputStream in = clientSocket.getInputStream();
             OutputStream out = serverSocket.getOutputStream();
             out.write(upgradeResult.getInitialForwardBytes());
-            (new Thread(this::clientBound)).start();
+            ThreadCreator.createThread(this::clientBound, null, false, true).start();
             Util.copy(in, out);
         } catch (IOException ioe) {
             close();

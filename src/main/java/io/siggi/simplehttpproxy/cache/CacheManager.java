@@ -1,5 +1,6 @@
 package io.siggi.simplehttpproxy.cache;
 
+import io.siggi.simplehttpproxy.ThreadCreator;
 import io.siggi.simplehttpproxy.util.Hash;
 import io.siggi.simplehttpproxy.util.HttpHeader;
 import io.siggi.simplehttpproxy.util.Util;
@@ -145,7 +146,7 @@ public class CacheManager {
     }
 
     public void startCleanupThread() {
-        Thread cleanupThread = new Thread(() -> {
+        ThreadCreator.createThread(() -> {
             while (true) {
                 try {
                     cleanup();
@@ -156,9 +157,7 @@ public class CacheManager {
                 } catch (Exception e) {
                 }
             }
-        }, "CacheCleanup");
-        cleanupThread.setDaemon(true);
-        cleanupThread.start();
+        }, "CacheCleanup", true, false).start();
     }
 
     private void cleanup() {

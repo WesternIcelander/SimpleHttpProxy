@@ -1,5 +1,6 @@
 package io.siggi.simplehttpproxy.util;
 
+import io.siggi.simplehttpproxy.ThreadCreator;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -31,8 +32,7 @@ public class Logger {
     public void start() {
         if (started) return;
         started = true;
-        thread = new Thread(this::run, "Logger");
-        thread.setDaemon(true);
+        thread = ThreadCreator.createThread(this::run, "Logger", true, false);
         thread.start();
     }
 
@@ -76,7 +76,7 @@ public class Logger {
     }
 
     private void compress(File file) {
-        Thread compressThread = new Thread(() -> {
+        ThreadCreator.createThread(() -> {
             File compressedFileName = new File(file.getParentFile(), file.getName() + ".gz");
             try (FileInputStream in = new FileInputStream(file); FileOutputStream out = new FileOutputStream(compressedFileName)) {
                 GZIPOutputStream gzipOut = new GZIPOutputStream(out);
@@ -87,9 +87,7 @@ public class Logger {
                 return;
             }
             file.delete();
-        });
-        compressThread.setDaemon(false);
-        compressThread.start();
+        }, null, false, false).start();
     }
 
     private void writeBytes(long time, byte[] data) {

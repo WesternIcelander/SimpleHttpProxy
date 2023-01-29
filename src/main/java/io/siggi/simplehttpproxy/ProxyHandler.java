@@ -113,7 +113,7 @@ public class ProxyHandler {
             return;
         }
         started = true;
-        new Thread(this::handler).start();
+        ThreadCreator.createThread(this::handler, null, false, true).start();
     }
 
     private void addHstsHeader(HttpHeader header) {

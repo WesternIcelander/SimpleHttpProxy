@@ -1,5 +1,6 @@
 package io.siggi.simplehttpproxy.updater;
 
+import io.siggi.simplehttpproxy.ThreadCreator;
 import java.io.File;
 
 public class AutoUpdater {
@@ -19,9 +20,7 @@ public class AutoUpdater {
             System.err.println("AutoUpdater is not running because " + updaterPath + " is missing.");
             return;
         }
-        Thread thread = new Thread(AutoUpdater::updaterThread);
-        thread.setDaemon(true);
-        thread.start();
+        ThreadCreator.createThread(AutoUpdater::updaterThread, null, true, false).start();
     }
 
     private static void updaterThread() {

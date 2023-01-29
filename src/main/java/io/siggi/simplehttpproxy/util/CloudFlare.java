@@ -2,6 +2,7 @@ package io.siggi.simplehttpproxy.util;
 
 import io.siggi.iphelper.IP;
 
+import io.siggi.simplehttpproxy.ThreadCreator;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
@@ -94,9 +95,7 @@ public class CloudFlare {
 
     private static void updateRemoteRanges() {
         updatingRanges = true;
-        Thread updaterThread = new Thread(CloudFlare::doUpdateRemoteRanges, "CloudFlare-Update");
-        updaterThread.setDaemon(true);
-        updaterThread.start();
+        ThreadCreator.createThread(CloudFlare::doUpdateRemoteRanges, "CloudFlare-Update", true, false).start();
     }
 
     private static void doUpdateRemoteRanges() {

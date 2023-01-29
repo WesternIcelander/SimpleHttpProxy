@@ -175,6 +175,7 @@ public class ProxyHandler {
         boolean doNotClose = false;
         boolean wroteToClient = false;
         boolean receivedRequest = false;
+        boolean send408 = false;
         try {
             int connectionId = nextConnectionId();
             int downstreamId = 0;
@@ -203,7 +204,9 @@ public class ProxyHandler {
                 try {
                     wroteToClient = false;
                     receivedRequest = false;
+                    send408 = true;
                     downstreamHeaders = Util.readHeader(clientIn, 16384);
+                    send408 = false;
                     receivedRequest = true;
                     if (downstreamHeaders == null) {
                         break;
@@ -705,6 +708,15 @@ public class ProxyHandler {
             }
         } catch (SocketTimeoutException ste) {
             // we timed out xD
+            if (send408) {
+                try {
+                    clientOut.write("HTTP/1.1 408 Request Timeout\r\n".getBytes(StandardCharsets.UTF_8));
+                    clientOut.write("Connection: close\r\n".getBytes(StandardCharsets.UTF_8));
+                    clientOut.write("\r\n".getBytes(StandardCharsets.UTF_8));
+                    clientOut.flush();
+                } catch (Exception e) {
+                }
+            }
         } catch (SSLException ssle) {
             switch (ssle.getMessage()) {
                 case "Socket is closed":

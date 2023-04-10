@@ -475,7 +475,6 @@ public class ProxyHandler {
                     }
                     String downstreamPath = path;
                     if (backendPath != null) {
-                        // TODO: Test this to make sure it works properly :D
                         String backendPath0 = backendPath;
                         String prefix = settings.path[settingsMatch.index];
                         if (backendPath0.endsWith("/")) {

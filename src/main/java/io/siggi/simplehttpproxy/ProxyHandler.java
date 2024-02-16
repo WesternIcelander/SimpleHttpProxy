@@ -426,11 +426,11 @@ public class ProxyHandler {
                         continue;
                     }
                     if (settings.forwardType == ForwardingSettings.ForwardType.REDIRECT_EXACT) {
-                        return302(settings.backend);
+                        return301(settings.backend);
                         continue;
                     } else if (settings.forwardType == ForwardingSettings.ForwardType.REDIRECT_PREFIX) {
                         if (path.startsWith("/")) {
-                            return302(settings.backend + path);
+                            return301(settings.backend + path);
                         } else {
                             return400();
                         }
@@ -801,6 +801,21 @@ public class ProxyHandler {
         keepAliveHeaders(httpHeader);
         Util.writeHeader(clientOut, httpHeader);
         clientOut.write(content);
+    }
+
+    private void return301(String target) throws IOException {
+        HttpHeader httpHeader = new HttpHeader("HTTP/1.1 301 Moved Permanently", new CaseInsensitiveHashMap<>());
+        addHstsHeader(httpHeader);
+        httpHeader.setHeader("Server", "Siggi-SimpleHttpProxy");
+        httpHeader.setHeader("Transfer-Encoding", "chunked");
+        httpHeader.setHeader("Cache-Control", "private, max-age=0");
+        httpHeader.setHeader("Content-Type", "text/plain; charset=UTF-8");
+        httpHeader.setHeader("Location", target);
+        keepAliveHeaders(httpHeader);
+        Util.writeHeader(clientOut, httpHeader);
+        try (ChunkedOutputStream out = new ChunkedOutputStream(clientOut)) {
+            out.write(("301 Permanently Moved: " + target).getBytes());
+        }
     }
 
     private void return302(String target) throws IOException {

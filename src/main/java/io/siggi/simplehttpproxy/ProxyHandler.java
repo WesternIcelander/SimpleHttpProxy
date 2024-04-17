@@ -226,6 +226,8 @@ public class ProxyHandler {
                         continue;
                     }
 
+                    boolean isHeadMethod = method.equals("HEAD");
+
                     requestsReceived += 1;
 
                     wrappedIn = downstreamHeaders.wrapInputStream(clientIn);
@@ -656,8 +658,8 @@ public class ProxyHandler {
                     }
                     InputStream upWrapIn = cacheObject != null
                             ? cacheObject.getInputStream()
-                            : upstreamHeaders.wrapInputStream(serverIn);
-                    OutputStream upWrapOut = forwardedUpstreamHeaders.wrapOutputStream(clientOut);
+                            : (isHeadMethod ? null : upstreamHeaders.wrapInputStream(serverIn));
+                    OutputStream upWrapOut = isHeadMethod ? null : forwardedUpstreamHeaders.wrapOutputStream(clientOut);
                     if (upWrapIn != null && upWrapOut != null) {
                         OutputStream outDestination = upWrapOut;
                         if (cacheBuilder != null) {

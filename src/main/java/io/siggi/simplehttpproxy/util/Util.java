@@ -184,13 +184,23 @@ public class Util {
     }
 
     public static void copy(InputStream in, OutputStream out) throws IOException {
+        copy(in, out, null);
+    }
+
+    public static void copy(InputStream in, OutputStream out, CopyActivityMonitor monitor) throws IOException {
         byte[] buffer = new byte[4096];
         int c;
         while ((c = in.read(buffer, 0, buffer.length)) != -1) {
+            if (monitor != null) monitor.copyActivity(c);
             if (out != null) {
                 out.write(buffer, 0, c);
             }
         }
+    }
+
+    @FunctionalInterface
+    public interface CopyActivityMonitor {
+        void copyActivity(int amount);
     }
 
     public static void copyToDigest(InputStream in, MessageDigest digest) throws IOException {

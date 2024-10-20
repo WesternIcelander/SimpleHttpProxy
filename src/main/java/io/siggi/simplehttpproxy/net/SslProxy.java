@@ -10,6 +10,7 @@ import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
 
 public class SslProxy {
@@ -17,6 +18,7 @@ public class SslProxy {
     private final Socket clientSocket;
     private final SimpleHttpProxy.SSLUpgradeResult upgradeResult;
     private final InetSocketAddress backend;
+    private long lastActivity;
     private boolean started = false;
     private Socket serverSocket;
 
@@ -31,6 +33,7 @@ public class SslProxy {
             throw new IllegalStateException();
         }
         started = true;
+        lastActivity = System.currentTimeMillis();
         ThreadCreator.createThread(this::serverBound, null, false, true).start();
     }
 
@@ -51,12 +54,23 @@ public class SslProxy {
     private void serverBound() {
         try {
             serverSocket = new Socket(backend.getAddress(), backend.getPort());
+            serverSocket.setSoTimeout(120000);
             InputStream in = clientSocket.getInputStream();
             OutputStream out = serverSocket.getOutputStream();
             out.write(upgradeResult.getInitialForwardBytes());
             ThreadCreator.createThread(this::clientBound, null, false, true).start();
-            Util.copy(in, out);
+            while (true) {
+                try {
+                    Util.copy(in, out, count -> lastActivity = System.currentTimeMillis());
+                    break;
+                } catch (SocketTimeoutException e) {
+                    if (System.currentTimeMillis() - lastActivity > 120000L) {
+                        throw e;
+                    }
+                }
+            }
         } catch (IOException ioe) {
+        } finally {
             close();
         }
     }
@@ -65,8 +79,18 @@ public class SslProxy {
         try {
             InputStream in = serverSocket.getInputStream();
             OutputStream out = clientSocket.getOutputStream();
-            Util.copy(in, out);
+            while (true) {
+                try {
+                    Util.copy(in, out, count -> lastActivity = System.currentTimeMillis());
+                    break;
+                } catch (SocketTimeoutException e) {
+                    if (System.currentTimeMillis() - lastActivity > 120000L) {
+                        throw e;
+                    }
+                }
+            }
         } catch (IOException ioe) {
+        } finally {
             close();
         }
     }

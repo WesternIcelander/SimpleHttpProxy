@@ -582,6 +582,7 @@ public class ProxyHandler {
                             if (cacheObject == null) {
                                 upstreamHeaders = Util.readHeader(serverIn, 65536);
                                 if (upstreamHeaders == null) {
+                                    if (reuseConnection) continue;
                                     throw new IOException("End of stream");
                                 }
                             }

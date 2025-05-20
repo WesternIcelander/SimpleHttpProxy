@@ -214,12 +214,13 @@ public class ProxyHandler {
                     String method;
                     String httpVer;
                     String path;
+                    String pathWithQueryString;
                     try {
                         String firstLine = downstreamHeaders.getFirstLine();
                         int firstSpace = firstLine.indexOf(" ");
                         int lastSpace = firstLine.lastIndexOf(" ");
                         method = firstLine.substring(0, firstSpace);
-                        path = firstLine.substring(firstSpace + 1, lastSpace);
+                        path = pathWithQueryString = firstLine.substring(firstSpace + 1, lastSpace);
                         httpVer = firstLine.substring(lastSpace + 1);
                     } catch (Exception e) {
                         return400();
@@ -432,7 +433,7 @@ public class ProxyHandler {
                         continue;
                     } else if (settings.forwardType == ForwardingSettings.ForwardType.REDIRECT_PREFIX) {
                         if (path.startsWith("/")) {
-                            return301(settings.backend + path);
+                            return301(settings.backend + pathWithQueryString);
                         } else {
                             return400();
                         }

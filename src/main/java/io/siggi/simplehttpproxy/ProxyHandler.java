@@ -787,6 +787,7 @@ public class ProxyHandler {
             httpHeader.setHeader("Keep-Alive", "timeout=60");
         } else {
             httpHeader.setHeader("Connection", "close");
+            httpHeader.deleteHeader("Keep-Alive");
         }
     }
 

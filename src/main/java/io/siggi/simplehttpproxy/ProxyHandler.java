@@ -600,7 +600,9 @@ public class ProxyHandler {
                             boolean upstreamKeepAlive = false;
                             {
                                 String connectionString = upstreamHeaders.getHeader("Connection");
-                                if (connectionString != null && connectionString.equals("Keep-Alive")) {
+                                if (connectionString == null) {
+                                    // nothing to do
+                                } else if (connectionString.equalsIgnoreCase("Keep-Alive")) {
                                     upstreamKeepAlive = true;
                                     if (maxDownstreamRequests == 1) {
                                         maxDownstreamRequests = Integer.MAX_VALUE;
@@ -627,6 +629,8 @@ public class ProxyHandler {
                                             }
                                         }
                                     }
+                                } else if (connectionString.equalsIgnoreCase("close")) {
+                                    keepAlive = false;
                                 }
                             }
                             String honeypot = upstreamHeaders.getHeader("X-SimpleHttpProxy-Honeypot");

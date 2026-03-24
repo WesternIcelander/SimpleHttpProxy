@@ -165,12 +165,12 @@ public class ProxyHandler {
             clientIn = new SecureBufferedInputStream(clientSocket.getInputStream(), 131072);
             clientOut = clientSocket.getOutputStream();
         } catch (Exception e) {
+            log("Failed to establish connection with client", e);
             try {
                 clientSocket.close();
-                return;
-            } catch (Exception e2) {
+            } catch (Exception ignored) {
             }
-            log("Failed to establish connection with client", e);
+            return;
         }
         boolean doNotClose = false;
         boolean wroteToClient = false;

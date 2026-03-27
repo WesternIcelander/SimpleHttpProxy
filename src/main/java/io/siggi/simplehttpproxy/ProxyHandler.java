@@ -685,7 +685,10 @@ public class ProxyHandler {
                         log(logLine);
                     }
                     if (wrappedIn != null) {
-                        Util.copy(wrappedIn, null);
+                        try {
+                            Util.copy(wrappedIn, null);
+                        } catch (Exception ignored) {
+                        }
                     }
                     if (cacheBuilder != null) {
                         cacheBuilder.close();

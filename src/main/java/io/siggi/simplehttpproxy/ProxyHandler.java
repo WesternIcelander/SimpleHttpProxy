@@ -684,26 +684,6 @@ public class ProxyHandler {
                     if (logLine != null) {
                         log(logLine);
                     }
-                    boolean setBan = false;
-                    String firstLine = downstreamHeaders == null ? null : downstreamHeaders.getFirstLine();
-                    if (firstLine != null) {
-                        if (firstLine.substring(firstLine.indexOf(" ") + 1).toLowerCase().startsWith("/phpmyadmin")) {
-                            setBan = true;
-                        }
-                    }
-                    if (wrappedIn != null) {
-                        byte[] b = new byte[4096];
-                        int amount = wrappedIn.read(b, 0, b.length);
-                        if (amount > 0) {
-                            String s = new String(b, 0, amount);
-                            if (s.contains("=die(md5(Ch3ck1ng));")) {
-                                setBan = true;
-                            }
-                        }
-                    }
-                    if (setBan) {
-                        proxyServer.ban(clientIP);
-                    }
                     if (wrappedIn != null) {
                         Util.copy(wrappedIn, null);
                     }

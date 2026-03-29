@@ -520,16 +520,18 @@ public class ProxyHandler {
                         clientIn.mark(524288); // 512kB
                         logLine = logLineA;
                         boolean reuseConnection = allowConnectionReuse && tries == 0 && isIdempotent(downstreamHeaders.getFirstLine()) && lastHost != null && lastAddr != null && host.equals(lastHost) && backendServer.equals(lastAddr);
-                        OutputStream wrappedOut = null;
+                        OutputStream wrappedOut;
                         sendReq:
                         if (cacheObject == null) {
+                            tryReuse:
                             if (reuseConnection && requestsForwarded < maxDownstreamRequests && System.currentTimeMillis() < reuseTimeout) {
                                 try {
                                     Util.writeHeader(serverOut, downstreamHeaders);
-                                    wrappedOut = downstreamHeaders.wrapOutputStream(serverOut);
-                                    break sendReq;
                                 } catch (Exception e) {
+                                    break tryReuse;
                                 }
+                                wrappedOut = downstreamHeaders.wrapOutputStream(serverOut);
+                                break sendReq;
                             }
                             if (serverSocket != null) {
                                 try {
@@ -552,6 +554,8 @@ public class ProxyHandler {
                             wrappedOut = downstreamHeaders.wrapOutputStream(serverOut);
                             lastHost = host;
                             lastAddr = backendServer;
+                        } else {
+                            wrappedOut = null;
                         }
                         requestsForwarded += 1;
                         reuseTimeout = 0L;

@@ -525,7 +525,15 @@ public class ProxyHandler {
                         }
                         clientIn.mark(524288); // 512kB
                         logLine = logLineA;
-                        boolean reuseConnection = allowConnectionReuse && tries == 0 && isIdempotent(downstreamHeaders.getFirstLine()) && lastHost != null && lastAddr != null && host.equals(lastHost) && backendServer.equals(lastAddr);
+                        boolean reuseConnection =
+                                allowConnectionReuse
+                                        && tries == 0
+                                        && isIdempotent(downstreamHeaders.getFirstLine())
+                                        && lastHost != null
+                                        && lastAddr != null
+                                        && host.equals(lastHost)
+                                        && backendServer.equals(lastAddr)
+                                ;
                         OutputStream wrappedOut;
                         sendReq:
                         if (cacheObject == null) {

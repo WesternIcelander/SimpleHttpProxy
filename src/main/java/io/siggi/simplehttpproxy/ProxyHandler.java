@@ -533,6 +533,7 @@ public class ProxyHandler {
                                         && lastAddr != null
                                         && host.equals(lastHost)
                                         && backendServer.equals(lastAddr)
+                                        && serverIn.available() == 0
                                 ;
                         OutputStream wrappedOut;
                         sendReq:

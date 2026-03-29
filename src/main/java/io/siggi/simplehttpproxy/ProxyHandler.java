@@ -6,6 +6,7 @@ import io.siggi.simplehttpproxy.cache.CacheManager;
 import io.siggi.simplehttpproxy.cache.CacheObject;
 import io.siggi.simplehttpproxy.io.ChunkedOutputStream;
 import io.siggi.simplehttpproxy.io.SecureBufferedInputStream;
+import io.siggi.simplehttpproxy.io.SometimesTimeoutInputStream;
 import io.siggi.simplehttpproxy.io.SubInputStream;
 import io.siggi.simplehttpproxy.io.TeeOutputStream;
 import io.siggi.simplehttpproxy.net.SslProxy;
@@ -45,7 +46,7 @@ public class ProxyHandler {
     private String lastHost = null;
     private String lastAddr = null;
     private Socket serverSocket;
-    private InputStream serverIn;
+    private SometimesTimeoutInputStream serverIn;
     private OutputStream serverOut;
     private boolean keepAlive = true;
     private boolean started = false;
@@ -188,6 +189,7 @@ public class ProxyHandler {
             String logLine = null;
             InputStream wrappedIn = null;
             HttpHeader downstreamHeaders;
+            Thread downstreamBodyForwarder = null;
             outerLoop:
             while (keepAlive) {
                 String sourceIP = clientSocket.getInetAddress().getHostAddress();
@@ -202,6 +204,10 @@ public class ProxyHandler {
                 this.settings = null;
                 CacheBuilder cacheBuilder = null;
                 try {
+                    if (downstreamBodyForwarder != null) {
+                        downstreamBodyForwarder.join();
+                        downstreamBodyForwarder = null;
+                    }
                     wroteToClient = false;
                     receivedRequest = false;
                     send408 = true;
@@ -541,6 +547,7 @@ public class ProxyHandler {
                             }
                             try {
                                 serverSocket = Util.connect(backendServer);
+                                serverSocket.setSoTimeout(300000);
                                 requestsForwarded = 0;
                                 maxDownstreamRequests = 1;
                                 downstreamId += 1;
@@ -548,7 +555,7 @@ public class ProxyHandler {
                                 return502();
                                 continue outerLoop;
                             }
-                            serverIn = serverSocket.getInputStream();
+                            serverIn = new SometimesTimeoutInputStream(serverSocket.getInputStream());
                             serverOut = serverSocket.getOutputStream();
                             Util.writeHeader(serverOut, downstreamHeaders);
                             wrappedOut = downstreamHeaders.wrapOutputStream(serverOut);
@@ -577,12 +584,30 @@ public class ProxyHandler {
                                 wrappedIn = null;
                             }
                         }
+                        clientIn.eraseFreeSpace();
                         if (!failed100Continue) {
                             if (cacheObject == null && wrappedIn != null && wrappedOut != null) {
-                                Util.copy(wrappedIn, wrappedOut);
-                                if (wrappedOut instanceof ChunkedOutputStream) {
-                                    wrappedOut.close();
-                                }
+                                InputStream finalWrappedIn = wrappedIn;
+                                serverIn.setThrowTimeoutException(false);
+                                wrappedIn = null;
+                                downstreamBodyForwarder = ThreadCreator.createThread(() -> {
+                                    try {
+                                        Util.copy(finalWrappedIn, wrappedOut);
+                                        if (wrappedOut instanceof ChunkedOutputStream) {
+                                            wrappedOut.close();
+                                        }
+                                    } catch (IOException e) {
+                                        keepAlive = false;
+                                    } finally {
+                                        try {
+                                            Util.copy(finalWrappedIn, null);
+                                        } catch (IOException ignored) {
+                                        }
+                                        clientIn.eraseFreeSpace();
+                                        serverIn.setThrowTimeoutException(true);
+                                    }
+                                }, "", false, true);
+                                downstreamBodyForwarder.start();
                             }
                             if (cacheObject == null) {
                                 upstreamHeaders = Util.readHeader(serverIn, 65536);
@@ -598,6 +623,7 @@ public class ProxyHandler {
                                 // This is a 101 Switching Protocols response, indicating an upgrade
                                 Util.writeHeader(clientOut, upstreamHeaders);
                                 wroteToClient = true;
+                                downstreamBodyForwarder.join();
                                 upgrade(clientSocket, serverSocket);
                                 doNotClose = true;
                                 return;
@@ -685,7 +711,6 @@ public class ProxyHandler {
                         upWrapOut.close();
                     }
                 } finally {
-                    clientIn.eraseFreeSpace();
                     if (logLine != null) {
                         log(logLine);
                     }

@@ -595,6 +595,7 @@ public class ProxyHandler {
                             String firstLine = upstreamHeaders.getFirstLine();
                             logLine += " -> " + firstLine;
                             if (firstLine.substring(firstLine.indexOf(" ") + 1).startsWith("101 ")) {
+                                // This is a 101 Switching Protocols response, indicating an upgrade
                                 Util.writeHeader(clientOut, upstreamHeaders);
                                 wroteToClient = true;
                                 upgrade(clientSocket, serverSocket);

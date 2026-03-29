@@ -207,6 +207,9 @@ public class ProxyHandler {
                     if (downstreamBodyForwarder != null) {
                         downstreamBodyForwarder.join();
                         downstreamBodyForwarder = null;
+                        if (!keepAlive) {
+                            break;
+                        }
                     }
                     wroteToClient = false;
                     receivedRequest = false;

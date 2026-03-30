@@ -632,7 +632,7 @@ public class SimpleHttpProxy {
         }
         InputStream in = socket.getInputStream();
         String clientIp = socket.getInetAddress().getHostAddress();
-        byte[] initialBytes = TlsUtil.readTlsPacket(in, 4096);
+        byte[] initialBytes = TlsUtil.readTlsPacket(in, 16384);
         if (initialBytes[0] == (byte) 0xff && initialBytes[1] == (byte) 0x7f) {
             int ver = initialBytes[2] & 0xff;
             if (TrustForward.isTrusted(clientIp)) {
@@ -645,7 +645,7 @@ public class SimpleHttpProxy {
                 } catch (Exception e) {
                 }
             }
-            initialBytes = TlsUtil.readTlsPacket(in, 4096);
+            initialBytes = TlsUtil.readTlsPacket(in, 16384);
         }
         injectXForwardedFor.add(clientIp);
         String sni = TlsUtil.readSNI(initialBytes);

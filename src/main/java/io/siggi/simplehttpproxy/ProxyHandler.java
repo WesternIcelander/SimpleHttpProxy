@@ -635,7 +635,10 @@ public class ProxyHandler {
                                 // This is a 101 Switching Protocols response, indicating an upgrade
                                 Util.writeHeader(clientOut, upstreamHeaders);
                                 wroteToClient = true;
-                                downstreamBodyForwarder.join();
+                                if (downstreamBodyForwarder != null) {
+                                    downstreamBodyForwarder.join();
+                                    downstreamBodyForwarder = null;
+                                }
                                 upgrade(clientSocket, serverSocket);
                                 doNotClose = true;
                                 return;

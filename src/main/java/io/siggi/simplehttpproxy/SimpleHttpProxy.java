@@ -564,6 +564,11 @@ public class SimpleHttpProxy {
                 filesToWatch.add(new FileToWatch(certs));
                 try (BufferedReader reader = new BufferedReader(new FileReader(certs))) {
                     String line;
+                    SSLInfo lastInfo = null;
+                    List<String> setProtocols = new ArrayList<>();
+                    List<String> disableProtocols = new ArrayList<>();
+                    List<String> setCipherSuites = new ArrayList<>();
+                    List<String> disableCipherSuites = new ArrayList<>();
                     while ((line = reader.readLine()) != null) {
                         int hashPos = line.indexOf("#");
                         if (hashPos >= 0) {
@@ -573,6 +578,38 @@ public class SimpleHttpProxy {
                         String[] parts = line.split("\t{1,}+", 4);
                         if (parts[0].equals("transparentproxy")) {
                             transparentProxy = true;
+                        }
+                        if (parts[0].equals("+proto")) {
+                            if (lastInfo == null) {
+                                setProtocols.clear();
+                                setProtocols.addAll(Arrays.asList(parts[1].split(",")));
+                            } else {
+                                lastInfo.setProtocolsM.clear();
+                                lastInfo.setProtocolsM.addAll(Arrays.asList(parts[1].split(",")));
+                            }
+                        }
+                        if (parts[0].equals("-proto")) {
+                            if (lastInfo == null) {
+                                disableProtocols.addAll(Arrays.asList(parts[1].split(",")));
+                            } else {
+                                lastInfo.disableProtocolsM.addAll(Arrays.asList(parts[1].split(",")));
+                            }
+                        }
+                        if (parts[0].equals("+cipher")) {
+                            if (lastInfo == null) {
+                                setCipherSuites.clear();
+                                setCipherSuites.addAll(Arrays.asList(parts[1].split(",")));
+                            } else {
+                                lastInfo.setCipherSuitesM.clear();
+                                lastInfo.setCipherSuitesM.addAll(Arrays.asList(parts[1].split(",")));
+                            }
+                        }
+                        if (parts[0].equals("-cipher")) {
+                            if (lastInfo == null) {
+                                disableCipherSuites.addAll(Arrays.asList(parts[1].split(",")));
+                            } else {
+                                lastInfo.disableCipherSuitesM.addAll(Arrays.asList(parts[1].split(",")));
+                            }
                         }
                         if (parts.length < 2) {
                             continue;
@@ -595,7 +632,11 @@ public class SimpleHttpProxy {
                                 if (parts.length >= 4) {
                                     onlyIPs = parts[3];
                                 }
-                                sslInfo.put(parts[0].toLowerCase(), new SSLInfo(parts[2], !parts[1].equals("ForwardN"), onlyIPs));
+                                sslInfo.put(parts[0].toLowerCase(), lastInfo = new SSLInfo(parts[2], !parts[1].equals("ForwardN"), onlyIPs));
+                                lastInfo.setProtocolsM.addAll(setProtocols);
+                                lastInfo.disableProtocolsM.addAll(disableProtocols);
+                                lastInfo.setCipherSuitesM.addAll(setCipherSuites);
+                                lastInfo.disableCipherSuitesM.addAll(disableCipherSuites);
                             } else {
                                 if (parts.length < 4) {
                                     continue;
@@ -606,7 +647,11 @@ public class SimpleHttpProxy {
                                 if (keystoreFile.exists()) {
                                     KeyStore keystore = KeyMaster.getFromPath(keystoreFile, parts[1], parts[3]);
                                     SSLSocketFactory factory = KeyMaster.getSSLSocketFactory(keystore, parts[3], "TLS");
-                                    sslInfo.put(parts[0].toLowerCase(), new SSLInfo(factory));
+                                    sslInfo.put(parts[0].toLowerCase(), lastInfo = new SSLInfo(factory));
+                                    lastInfo.setProtocolsM.addAll(setProtocols);
+                                    lastInfo.disableProtocolsM.addAll(disableProtocols);
+                                    lastInfo.setCipherSuitesM.addAll(setCipherSuites);
+                                    lastInfo.disableCipherSuitesM.addAll(disableCipherSuites);
                                 }
                             }
                         }
@@ -669,6 +714,7 @@ public class SimpleHttpProxy {
         }
         if (info.factory != null) {
             SSLSocket sslSocket = (SSLSocket) info.factory.createSocket(socket, new ByteArrayInputStream(initialBytes), true);
+            info.adjustProtocol(sslSocket);
             sslSocket.setUseClientMode(false);
             sslSocket.startHandshake();
             return new SSLUpgradeResult(sslSocket, initialBytes, info.injectXForwardedFor ? injectXForwardedFor : null);
@@ -849,6 +895,16 @@ public class SimpleHttpProxy {
         public final boolean injectXForwardedFor;
         public final List<IP> onlyIPs;
 
+        final List<String> setProtocolsM = new ArrayList<>();
+        final List<String> disableProtocolsM = new ArrayList<>();
+        final List<String> setCipherSuitesM = new ArrayList<>();
+        final List<String> disableCipherSuitesM = new ArrayList<>();
+
+        public final List<String> setProtocols = Collections.unmodifiableList(setProtocolsM);
+        public final List<String> disableProtocols = Collections.unmodifiableList(disableProtocolsM);
+        public final List<String> setCipherSuites = Collections.unmodifiableList(setCipherSuitesM);
+        public final List<String> disableCipherSuites = Collections.unmodifiableList(disableCipherSuitesM);
+
         private SSLInfo(String backend, boolean injectXForwardedFor, String onlyIPs) {
             this.factory = null;
             this.backend = backend;
@@ -875,6 +931,39 @@ public class SimpleHttpProxy {
             this.backend = null;
             this.injectXForwardedFor = true;
             this.onlyIPs = null;
+        }
+
+        private final String[] emptyStringArray = new String[0];
+
+        public void adjustProtocol(SSLSocket socket) {
+            if (!setProtocols.isEmpty()) {
+                socket.setEnabledProtocols(setProtocols.toArray(emptyStringArray));
+            } else if (!disableProtocols.isEmpty()) {
+                List<String> protocols = new ArrayList<>(Arrays.asList(socket.getEnabledProtocols()));
+                for (String protocol : disableProtocols) {
+                    if (protocol.startsWith("regex:")) {
+                        String regex = protocol.substring(6);
+                        protocols.removeIf(p -> p.matches(regex));
+                    } else {
+                        protocols.remove(protocol);
+                    }
+                }
+                socket.setEnabledProtocols(protocols.toArray(emptyStringArray));
+            }
+            if (!setCipherSuites.isEmpty()) {
+                socket.setEnabledCipherSuites(setCipherSuites.toArray(emptyStringArray));
+            } else if (!disableCipherSuites.isEmpty()) {
+                List<String> cipherSuites = new ArrayList<>(Arrays.asList(socket.getEnabledCipherSuites()));
+                for (String cipherSuite : disableCipherSuites) {
+                    if (cipherSuite.startsWith("regex:")) {
+                        String regex = cipherSuite.substring(6);
+                        cipherSuites.removeIf(p -> p.matches(regex));
+                    } else {
+                        cipherSuites.remove(cipherSuite);
+                    }
+                }
+                socket.setEnabledCipherSuites(cipherSuites.toArray(emptyStringArray));
+            }
         }
     }
 }

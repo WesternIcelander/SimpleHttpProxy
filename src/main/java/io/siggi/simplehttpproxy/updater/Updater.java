@@ -3,6 +3,8 @@ package io.siggi.simplehttpproxy.updater;
 import io.siggi.processapi.ProcessAPI;
 import io.siggi.simplehttpproxy.util.Util;
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.PrintStream;
 import java.net.HttpURLConnection;
 import java.util.Map;
 import static io.siggi.simplehttpproxy.updater.UpdateUtil.delete;
@@ -14,14 +16,20 @@ import static io.siggi.simplehttpproxy.updater.UpdateUtil.readShasums;
 import static io.siggi.simplehttpproxy.updater.UpdateUtil.setupPerms;
 
 public class Updater {
+
+    public static final String downloadRoot = "https://siggi.io/code/simplehttpproxy";
+
     public static void main(String[] args) throws Exception {
+        FileOutputStream out = new FileOutputStream("shp-update.log");
+        PrintStream ps = new PrintStream(out);
+        System.setOut(ps);
+        System.setErr(ps);
         int uid = ProcessAPI.getuid();
         if (uid != 0) {
             System.err.println("Must be run as root");
             System.exit(1);
             return;
         }
-        String downloadRoot = "https://siggi.io/code/simplehttpproxy";
 
         File simpleHttpProxy = new File("SimpleHttpProxy.jar");
         HttpURLConnection connection = openConnection(downloadRoot + "/checksums.txt");

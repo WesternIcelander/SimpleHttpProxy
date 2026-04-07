@@ -2,6 +2,12 @@ package io.siggi.simplehttpproxy.updater;
 
 import io.siggi.simplehttpproxy.ThreadCreator;
 import java.io.File;
+import java.net.HttpURLConnection;
+import java.util.Map;
+
+import static io.siggi.simplehttpproxy.updater.UpdateUtil.hashFile;
+import static io.siggi.simplehttpproxy.updater.UpdateUtil.openConnection;
+import static io.siggi.simplehttpproxy.updater.UpdateUtil.readShasums;
 
 public class AutoUpdater {
     private static boolean started = false;
@@ -43,7 +49,18 @@ public class AutoUpdater {
     }
 
     private static boolean runUpdater() {
-        boolean update = false;
+        try {
+            File simpleHttpProxy = new File("SimpleHttpProxy.jar");
+            HttpURLConnection connection = openConnection(Updater.downloadRoot + "/checksums.txt");
+            Map<String, String> shasums = readShasums(connection.getInputStream());
+            connection.disconnect();
+            String currentHash = hashFile(simpleHttpProxy);
+            if (currentHash.equals(shasums.get("SimpleHttpProxy.jar"))) {
+                return false;
+            }
+        } catch (Exception e) {
+            return false;
+        }
         try {
             Process process = Runtime.getRuntime().exec(new String[]{updaterPath});
             int i = process.waitFor();

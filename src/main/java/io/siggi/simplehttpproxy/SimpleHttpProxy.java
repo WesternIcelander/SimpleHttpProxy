@@ -1,5 +1,7 @@
 package io.siggi.simplehttpproxy;
 
+import io.siggi.easytls.EasyTls;
+import io.siggi.easytls.EasyTlsException;
 import io.siggi.iphelper.IP;
 import io.siggi.iphelper.IPv6;
 import io.siggi.processapi.ProcessAPI;
@@ -638,6 +640,30 @@ public class SimpleHttpProxy {
                                 lastInfo.setCipherSuitesM.addAll(setCipherSuites);
                                 lastInfo.disableCipherSuitesM.addAll(disableCipherSuites);
                             } else {
+                                if (parts[1].equals("PEM")) {
+                                    if (parts.length < 5) {
+                                        continue;
+                                    }
+                                    File certFile = new File(parts[2]);
+                                    File keyFile = new File(parts[3]);
+                                    File chainFile = new File(parts[4]);
+                                    filesToWatch.add(new FileToWatch(certFile));
+                                    filesToWatch.add(new FileToWatch(keyFile));
+                                    filesToWatch.add(new FileToWatch(chainFile));
+                                    EasyTls easyTls;
+                                    try {
+                                        easyTls = EasyTls.createFromCertificate(certFile, keyFile, chainFile);
+                                    } catch (EasyTlsException e) {
+                                        continue;
+                                    }
+                                    SSLSocketFactory factory = easyTls.getSSLContext().getSocketFactory();
+                                    sslInfo.put(parts[0].toLowerCase(), lastInfo = new SSLInfo(factory));
+                                    lastInfo.setProtocolsM.addAll(setProtocols);
+                                    lastInfo.disableProtocolsM.addAll(disableProtocols);
+                                    lastInfo.setCipherSuitesM.addAll(setCipherSuites);
+                                    lastInfo.disableCipherSuitesM.addAll(disableCipherSuites);
+                                    continue;
+                                }
                                 if (parts.length < 4) {
                                     continue;
                                 }

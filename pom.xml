@@ -25,6 +25,11 @@
             <version>1.0.1</version>
             <scope>compile</scope>
         </dependency>
+        <dependency>
+            <groupId>io.siggi</groupId>
+            <artifactId>EasyTls</artifactId>
+            <version>1.0</version>
+        </dependency>
     </dependencies>
 
     <build>

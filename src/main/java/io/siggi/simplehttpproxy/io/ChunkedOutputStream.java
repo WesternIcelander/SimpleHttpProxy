@@ -7,6 +7,7 @@ public final class ChunkedOutputStream extends OutputStream {
 
     private final OutputStream out;
     private boolean closed = false;
+    private byte[] buffer = new byte[4096];
     public ChunkedOutputStream(OutputStream out) {
         this.out = out;
     }
@@ -16,12 +17,13 @@ public final class ChunkedOutputStream extends OutputStream {
         if (closed) {
             throw new IOException("Stream closed!");
         }
-        out.write((Integer.toString(1, 16)).getBytes());
-        out.write(0x0D);
-        out.write(0x0A);
-        out.write(b);
-        out.write(0x0D);
-        out.write(0x0A);
+        buffer[0] = (byte) 0x31;
+        buffer[1] = (byte) 0x0D;
+        buffer[2] = (byte) 0x0A;
+        buffer[3] = (byte) b;
+        buffer[4] = (byte) 0x0D;
+        buffer[5] = (byte) 0x0A;
+        out.write(buffer, 0, 6);
     }
 
     @Override
@@ -34,12 +36,21 @@ public final class ChunkedOutputStream extends OutputStream {
         if (closed) {
             throw new IOException("Stream closed!");
         }
-        out.write((Integer.toString(len, 16)).getBytes());
-        out.write(0x0D);
-        out.write(0x0A);
-        out.write(b, off, len);
-        out.write(0x0D);
-        out.write(0x0A);
+        byte[] integerBytes = Integer.toString(len, 16).getBytes();
+        int minBufferSize = integerBytes.length + len + 4;
+        if (buffer.length < minBufferSize) {
+            buffer = new byte[minBufferSize];
+        }
+        int bOffset = 0;
+        System.arraycopy(integerBytes, 0, buffer, bOffset, integerBytes.length);
+        bOffset += integerBytes.length;
+        buffer[bOffset++] = (byte) 0x0D;
+        buffer[bOffset++] = (byte) 0x0A;
+        System.arraycopy(b, off, buffer, bOffset, len);
+        bOffset += len;
+        buffer[bOffset++] = (byte) 0x0D;
+        buffer[bOffset++] = (byte) 0x0A;
+        out.write(buffer, 0, bOffset);
     }
 
     @Override
@@ -56,11 +67,12 @@ public final class ChunkedOutputStream extends OutputStream {
             return;
         }
         closed = true;
+        buffer[0] = (byte) 0x30;
+        buffer[1] = (byte) 0x0D;
+        buffer[2] = (byte) 0x0A;
+        buffer[3] = (byte) 0x0D;
+        buffer[4] = (byte) 0x0A;
+        out.write(buffer, 0, 5);
         out.flush();
-        out.write(0x30);
-        out.write(0x0D);
-        out.write(0x0A);
-        out.write(0x0D);
-        out.write(0x0A);
     }
 }

@@ -58,6 +58,7 @@ public class ProxyHandler {
         this.cacheManager = proxyServer.getCacheManager();
         this.clientSocket = clientSocket;
         this.secure = secure;
+        clientSocket.setTcpNoDelay(true);
         clientSocket.setSoTimeout(120000); // we announce Keep-Alive timeout=60, but we'll wait up to 2 minutes
     }
 
@@ -163,6 +164,7 @@ public class ProxyHandler {
                 SSLSocket ssl = upgradeResult.socket;
                 injectXForwardedFor = upgradeResult.injectXForwardedFor;
                 clientSocket = ssl;
+                ssl.setTcpNoDelay(true);
             }
             clientIn = new SecureBufferedInputStream(clientSocket.getInputStream(), 131072);
             clientOut = clientSocket.getOutputStream();
@@ -560,6 +562,7 @@ public class ProxyHandler {
                             }
                             try {
                                 serverSocket = Util.connect(backendServer);
+                                serverSocket.setTcpNoDelay(true);
                                 serverSocket.setSoTimeout(300000);
                                 requestsForwarded = 0;
                                 maxDownstreamRequests = 1;

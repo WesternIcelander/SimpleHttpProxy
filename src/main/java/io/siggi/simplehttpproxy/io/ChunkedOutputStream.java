@@ -36,6 +36,7 @@ public final class ChunkedOutputStream extends OutputStream {
         if (closed) {
             throw new IOException("Stream closed!");
         }
+        if (len == 0) return;
         byte[] integerBytes = Integer.toString(len, 16).getBytes();
         int minBufferSize = integerBytes.length + len + 4;
         if (buffer.length < minBufferSize) {

@@ -28,6 +28,7 @@ import java.net.SocketException;
 import java.net.SocketTimeoutException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.Base64;
 import java.util.List;
 
@@ -965,7 +966,9 @@ public class ProxyHandler {
         keepAliveHeaders(httpHeader);
         Util.writeHeader(clientOut, httpHeader);
         if (f != null) {
-            Util.copy(new FileInputStream(f), clientOut);
+            try (InputStream in = Files.newInputStream(f.toPath())) {
+                Util.copy(in, clientOut);
+            }
         } else {
             try (ChunkedOutputStream out = new ChunkedOutputStream(clientOut)) {
                 out.write("503 Service Unavailable".getBytes());

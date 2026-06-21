@@ -745,9 +745,9 @@ public class ProxyHandler {
             // we timed out xD
             if (send408) {
                 try {
-                    clientOut.write("HTTP/1.1 408 Request Timeout\r\n".getBytes(StandardCharsets.UTF_8));
-                    clientOut.write("Connection: close\r\n".getBytes(StandardCharsets.UTF_8));
-                    clientOut.write("\r\n".getBytes(StandardCharsets.UTF_8));
+                    HttpHeader httpHeader = new HttpHeader("HTTP/1.1 408 Request Timeout", new CaseInsensitiveHashMap<>());
+                    httpHeader.setHeader("Connection", "close");
+                    Util.writeHeader(clientOut, httpHeader);
                     clientOut.flush();
                 } catch (Exception e) {
                 }

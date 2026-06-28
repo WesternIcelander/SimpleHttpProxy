@@ -39,7 +39,23 @@ public final class ChunkedOutputStream extends OutputStream {
     }
 
     private static int chunkOverhead(int bufferSize) {
-        return 4 + Integer.toString(bufferSize, 16).length();
+        return 4 + encodeChunkSize(null, 0, bufferSize);
+    }
+
+    private static final byte[] encodingCharset = "0123456789abcdef".getBytes(StandardCharsets.UTF_8);
+
+    private static int encodeChunkSize(byte[] buffer, int endOfSize, int chunkSize) {
+        if (chunkSize == 0) {
+            if (buffer != null) buffer[--endOfSize] = (byte) '0';
+            return 1;
+        }
+        int encodingSize = 0;
+        while (chunkSize != 0) {
+            if (buffer != null) buffer[--endOfSize] = encodingCharset[chunkSize & 0x0F];
+            chunkSize >>>= 4;
+            encodingSize++;
+        }
+        return encodingSize;
     }
 
     /**
@@ -111,10 +127,9 @@ public final class ChunkedOutputStream extends OutputStream {
     }
 
     private void finalizeChunk() {
-        byte[] chunkSize = Integer.toString(bufferOffset - dataStart, 16).getBytes(StandardCharsets.UTF_8);
-        chunkStart = dataStart - 2 - chunkSize.length;
+        int encodingLength = encodeChunkSize(buffer, dataStart - 2, bufferOffset - dataStart);
+        chunkStart = dataStart - 2 - encodingLength;
         chunkLength = bufferOffset - chunkStart + 2;
-        System.arraycopy(chunkSize, 0, buffer, chunkStart, chunkSize.length);
         buffer[dataStart - 2] = (byte) 0x0D;
         buffer[dataStart - 1] = (byte) 0x0A;
         buffer[chunkStart + chunkLength - 2] = (byte) 0x0D;

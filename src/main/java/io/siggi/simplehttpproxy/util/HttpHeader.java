@@ -70,9 +70,6 @@ public class HttpHeader {
     }
 
     public InputStream wrapInputStream(InputStream in) {
-        if (firstLine.toLowerCase().startsWith("HEAD ")) {
-            return null;
-        }
         long contentLength = -1L;
         boolean chunked = false;
         List<String> cl = headers.get("Content-Length");
@@ -101,9 +98,6 @@ public class HttpHeader {
     }
 
     public OutputStream wrapOutputStream(OutputStream out) {
-        if (firstLine.toLowerCase().startsWith("HEAD ")) {
-            return null;
-        }
         long contentLength = -1L;
         boolean chunked = false;
         List<String> cl = headers.get("Content-Length");

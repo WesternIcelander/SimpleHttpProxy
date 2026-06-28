@@ -46,6 +46,7 @@ public final class ChunkedInputStream extends InputStream {
                 long s = Long.parseLong(line, 16);
                 if (s == 0) {
                     receivedTerminatorChunk = true;
+                    readToLF();
                 }
                 return s;
             } catch (Exception e) {
@@ -56,6 +57,13 @@ public final class ChunkedInputStream extends InputStream {
             }
         }
         return 0L;
+    }
+
+    private void readToLF() throws IOException {
+        int c;
+        while ((c = in.read()) != -1) {
+            if (c == 0x0A) break;
+        }
     }
 
     @Override

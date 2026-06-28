@@ -123,7 +123,9 @@ public class HttpHeader {
             }
         }
         if (chunked) {
-            return new ChunkedOutputStream(out);
+            ChunkedOutputStream stream = new ChunkedOutputStream(out, false);
+            stream.setBuffering(false);
+            return stream;
         } else if (contentLength >= 0L) {
             return out;
         } else {

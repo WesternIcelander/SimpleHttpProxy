@@ -854,7 +854,7 @@ public class ProxyHandler {
         httpHeader.setHeader("Location", target);
         keepAliveHeaders(httpHeader);
         Util.writeHeader(clientOut, httpHeader);
-        try (ChunkedOutputStream out = new ChunkedOutputStream(clientOut)) {
+        try (ChunkedOutputStream out = new ChunkedOutputStream(clientOut, false)) {
             out.write(("301 Permanently Moved: " + target).getBytes());
         }
     }
@@ -869,7 +869,7 @@ public class ProxyHandler {
         httpHeader.setHeader("Location", target);
         keepAliveHeaders(httpHeader);
         Util.writeHeader(clientOut, httpHeader);
-        try (ChunkedOutputStream out = new ChunkedOutputStream(clientOut)) {
+        try (ChunkedOutputStream out = new ChunkedOutputStream(clientOut, false)) {
             out.write(("302 Found: " + target).getBytes());
         }
     }
@@ -885,7 +885,7 @@ public class ProxyHandler {
         httpHeader.setHeader("Content-Type", "text/plain; charset=UTF-8");
         keepAliveHeaders(httpHeader);
         Util.writeHeader(clientOut, httpHeader);
-        try (ChunkedOutputStream out = new ChunkedOutputStream(clientOut)) {
+        try (ChunkedOutputStream out = new ChunkedOutputStream(clientOut, false)) {
             out.write("400 Bad Request".getBytes());
         }
     }
@@ -900,7 +900,7 @@ public class ProxyHandler {
         httpHeader.setHeader("WWW-Authenticate", "Basic realm=" + basicAuth.getRealm());
         keepAliveHeaders(httpHeader);
         Util.writeHeader(clientOut, httpHeader);
-        try (ChunkedOutputStream out = new ChunkedOutputStream(clientOut)) {
+        try (ChunkedOutputStream out = new ChunkedOutputStream(clientOut, false)) {
             out.write("401 Unauthorized".getBytes());
         }
     }
@@ -914,7 +914,7 @@ public class ProxyHandler {
         httpHeader.setHeader("Content-Type", "text/plain; charset=UTF-8");
         keepAliveHeaders(httpHeader);
         Util.writeHeader(clientOut, httpHeader);
-        try (ChunkedOutputStream out = new ChunkedOutputStream(clientOut)) {
+        try (ChunkedOutputStream out = new ChunkedOutputStream(clientOut, false)) {
             out.write("404 Not Found".getBytes());
         }
     }
@@ -929,7 +929,7 @@ public class ProxyHandler {
         keepAlive = false;
         keepAliveHeaders(httpHeader);
         Util.writeHeader(clientOut, httpHeader);
-        try (ChunkedOutputStream out = new ChunkedOutputStream(clientOut)) {
+        try (ChunkedOutputStream out = new ChunkedOutputStream(clientOut, false)) {
             out.write("500 Internal Server Error".getBytes());
         }
     }
@@ -943,7 +943,7 @@ public class ProxyHandler {
         httpHeader.setHeader("Content-Type", "text/plain; charset=UTF-8");
         keepAliveHeaders(httpHeader);
         Util.writeHeader(clientOut, httpHeader);
-        try (ChunkedOutputStream out = new ChunkedOutputStream(clientOut)) {
+        try (ChunkedOutputStream out = new ChunkedOutputStream(clientOut, false)) {
             out.write("502 Bad Gateway".getBytes());
         }
     }
@@ -973,7 +973,7 @@ public class ProxyHandler {
                 Util.copy(in, clientOut);
             }
         } else {
-            try (ChunkedOutputStream out = new ChunkedOutputStream(clientOut)) {
+            try (ChunkedOutputStream out = new ChunkedOutputStream(clientOut, false)) {
                 out.write("503 Service Unavailable".getBytes());
             }
         }
@@ -988,7 +988,7 @@ public class ProxyHandler {
         httpHeader.setHeader("Content-Type", "text/plain; charset=UTF-8");
         keepAliveHeaders(httpHeader);
         Util.writeHeader(clientOut, httpHeader);
-        try (ChunkedOutputStream out = new ChunkedOutputStream(clientOut)) {
+        try (ChunkedOutputStream out = new ChunkedOutputStream(clientOut, false)) {
             out.write(("Your IP address (" + ip + ") is permanently banned from accessing this server.").getBytes());
         }
     }

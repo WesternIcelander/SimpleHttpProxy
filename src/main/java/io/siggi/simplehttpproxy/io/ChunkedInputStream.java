@@ -1,9 +1,8 @@
 package io.siggi.simplehttpproxy.io;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
 public final class ChunkedInputStream extends InputStream {
 
@@ -12,58 +11,70 @@ public final class ChunkedInputStream extends InputStream {
     private long remainingInChunk = 0;
     private boolean endOfStream = false;
     private boolean receivedTerminatorChunk = false;
+    private boolean expectCRLFBeforeChunkSize = false;
 
     public ChunkedInputStream(InputStream in) {
         this.in = in;
     }
 
-    private String readLine() throws IOException {
-        int c;
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        boolean eof = true;
-        while ((c = in.read()) != -1) {
-            eof = false;
-            if (c == 0x0A) {
-                break;
-            }
-            baos.write(c);
-        }
-        String line = new String(baos.toByteArray(), StandardCharsets.UTF_8);
-        if (line.endsWith("\r")) {
-            line = line.substring(0, line.length() - 1);
-        }
-        if (line.isEmpty() && eof) {
-            return null;
-        }
-        return line;
+    private static final int[] decodeCharset = new int[0x67];
+    static {
+        Arrays.fill(decodeCharset, -1);
+        decodeCharset['0'] = 0;
+        decodeCharset['1'] = 1;
+        decodeCharset['2'] = 2;
+        decodeCharset['3'] = 3;
+        decodeCharset['4'] = 4;
+        decodeCharset['5'] = 5;
+        decodeCharset['6'] = 6;
+        decodeCharset['7'] = 7;
+        decodeCharset['8'] = 8;
+        decodeCharset['9'] = 9;
+
+        decodeCharset['A'] = 10;
+        decodeCharset['B'] = 11;
+        decodeCharset['C'] = 12;
+        decodeCharset['D'] = 13;
+        decodeCharset['E'] = 14;
+        decodeCharset['F'] = 15;
+
+        decodeCharset['a'] = 10;
+        decodeCharset['b'] = 11;
+        decodeCharset['c'] = 12;
+        decodeCharset['d'] = 13;
+        decodeCharset['e'] = 14;
+        decodeCharset['f'] = 15;
     }
 
-    private long getChunkSize() throws IOException {
-        int c = 0;
-        String line;
-        while ((line = readLine()) != null) {
-            try {
-                long s = Long.parseLong(line, 16);
-                if (s == 0) {
-                    receivedTerminatorChunk = true;
-                    readToLF();
+    private long readChunkSize() throws IOException {
+        if (expectCRLFBeforeChunkSize) {
+            if (in.read() != 0x0D || in.read() != 0x0A) {
+                throw new IOException("Expected CRLF at end of chunk");
+            }
+        }
+        expectCRLFBeforeChunkSize = true;
+        long size = 0L;
+        do {
+            int c = in.read();
+            if (c == 0x0D) {
+                if (in.read() == 0x0A) {
+                    if (size == 0L) {
+                        receivedTerminatorChunk = true;
+                        if (in.read() != 0x0D || in.read() != 0x0A) {
+                            throw new IOException("Expected CRLF at end of chunk");
+                        }
+                    }
+                    return size;
+                } else {
+                    throw new IOException("Malformed chunk size encoding");
                 }
-                return s;
-            } catch (Exception e) {
             }
-            c += 1;
-            if (c >= 3) {
-                return 0L;
-            }
-        }
-        return 0L;
-    }
-
-    private void readToLF() throws IOException {
-        int c;
-        while ((c = in.read()) != -1) {
-            if (c == 0x0A) break;
-        }
+            if (c < 0 || c > decodeCharset.length) throw new IOException("Malformed chunk size encoding");
+            int value = decodeCharset[c];
+            if (value == -1) throw new IOException("Malformed chunk size encoding");
+            size <<= 4;
+            size |= value;
+        } while (true);
     }
 
     @Override
@@ -87,7 +98,7 @@ public final class ChunkedInputStream extends InputStream {
         }
         int maxRead;
         if (remainingInChunk <= 0L) {
-            remainingInChunk = getChunkSize();
+            remainingInChunk = readChunkSize();
             if (remainingInChunk == 0L) {
                 endOfStream = true;
                 return -1;
@@ -106,7 +117,7 @@ public final class ChunkedInputStream extends InputStream {
         }
         remainingInChunk -= readAmount;
         if (remainingInChunk == 0L) {
-            remainingInChunk = getChunkSize();
+            remainingInChunk = readChunkSize();
             if (remainingInChunk == 0L) {
                 endOfStream = true;
             }

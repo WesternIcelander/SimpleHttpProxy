@@ -4,6 +4,7 @@ import io.siggi.iphelper.IP;
 import io.siggi.simplehttpproxy.cache.CacheBuilder;
 import io.siggi.simplehttpproxy.cache.CacheManager;
 import io.siggi.simplehttpproxy.cache.CacheObject;
+import io.siggi.simplehttpproxy.io.ChunkedInputStream;
 import io.siggi.simplehttpproxy.io.ChunkedOutputStream;
 import io.siggi.simplehttpproxy.io.SecureBufferedInputStream;
 import io.siggi.simplehttpproxy.io.SometimesTimeoutInputStream;
@@ -19,6 +20,7 @@ import io.siggi.simplehttpproxy.util.Util;
 
 import javax.net.ssl.SSLException;
 import javax.net.ssl.SSLSocket;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -222,6 +224,7 @@ public class ProxyHandler {
                     receivedRequest = false;
                     send408 = true;
                     downstreamHeaders = Util.readHeader(clientIn, 16384);
+                    boolean partialRequestBodyAvailable = clientIn.available() > 0;
                     head = downstreamHeaders.getFirstLine().startsWith("HEAD ");
                     send408 = false;
                     receivedRequest = true;
@@ -408,7 +411,9 @@ public class ProxyHandler {
                                     }
                                     resultHeader.setHeader("Content-Type", getContentType(ext));
                                     resultHeader.setHeader("Server", "Siggi-SimpleHttpProxy");
+                                    clientOut.startBuffering();
                                     Util.writeHeader(clientOut, resultHeader);
+                                    clientOut.stopBuffering(!head && amountToWrite > 0L);
                                     if (!head) {
                                         OutputStream wrapOutputStream = resultHeader.wrapOutputStream(clientOut);
                                         try (FileInputStream fis = new FileInputStream(f)) {
@@ -551,7 +556,9 @@ public class ProxyHandler {
                             tryReuse:
                             if (reuseConnection && requestsForwarded < maxDownstreamRequests && System.currentTimeMillis() < reuseTimeout) {
                                 try {
+                                    serverOut.startBuffering();
                                     Util.writeHeader(serverOut, downstreamHeaders);
+                                    serverOut.stopBuffering(partialRequestBodyAvailable);
                                 } catch (Exception e) {
                                     break tryReuse;
                                 }
@@ -577,7 +584,9 @@ public class ProxyHandler {
                             }
                             serverIn = new SometimesTimeoutInputStream(serverSocket.getInputStream());
                             serverOut = new ToggleableBufferedOutputStream(rawServerOut = serverSocket.getOutputStream());
+                            serverOut.startBuffering();
                             Util.writeHeader(serverOut, downstreamHeaders);
+                            serverOut.stopBuffering(partialRequestBodyAvailable);
                             wrappedOut = downstreamHeaders.wrapOutputStream(serverOut);
                             lastHost = host;
                             lastAddr = backendServer;
@@ -589,19 +598,23 @@ public class ProxyHandler {
 
                         logLine += " (CID:" + connectionId + ",dCID:" + downstreamId + ",DR:" + requestsForwarded + ")";
 
+                        boolean partialResponseBodyAvailable = false;
                         boolean failed100Continue = false;
                         if (expect100Continue) {
                             upstreamHeaders = Util.readHeader(serverIn, 65536);
                             addHstsHeader(upstreamHeaders);
                             upstreamHeaders.setHeader("Connection", "Keep-Alive");
                             upstreamHeaders.setHeader("Keep-Alive", "timeout=60");
+                            clientOut.startBuffering();
                             Util.writeHeader(clientOut, upstreamHeaders);
+                            clientOut.stopBuffering();
                             wroteToClient = true;
                             String firstLine = upstreamHeaders.getFirstLine();
                             if (!firstLine.substring(firstLine.indexOf(" ") + 1).startsWith("100 ")) {
                                 logLine += " -> " + firstLine;
                                 failed100Continue = true;
                                 wrappedIn = null;
+                                partialResponseBodyAvailable = serverIn.available() > 0;
                             }
                         }
                         clientIn.eraseFreeSpace();
@@ -631,6 +644,7 @@ public class ProxyHandler {
                             }
                             if (cacheObject == null) {
                                 upstreamHeaders = Util.readHeader(serverIn, 65536);
+                                partialResponseBodyAvailable = serverIn.available() > 0;
                                 if (upstreamHeaders == null) {
                                     if (reuseConnection) continue;
                                     throw new IOException("End of stream");
@@ -641,7 +655,9 @@ public class ProxyHandler {
                             logLine += " -> " + firstLine;
                             if (firstLine.substring(firstLine.indexOf(" ") + 1).startsWith("101 ")) {
                                 // This is a 101 Switching Protocols response, indicating an upgrade
+                                clientOut.startBuffering();
                                 Util.writeHeader(clientOut, upstreamHeaders);
+                                clientOut.stopBuffering();
                                 wroteToClient = true;
                                 if (downstreamBodyForwarder != null) {
                                     downstreamBodyForwarder.join();
@@ -712,7 +728,9 @@ public class ProxyHandler {
                                 forwardedUpstreamHeaders = upstreamHeaders;
                             }
                             keepAliveHeaders(forwardedUpstreamHeaders);
+                            clientOut.startBuffering();
                             Util.writeHeader(clientOut, forwardedUpstreamHeaders);
+                            clientOut.stopBuffering(partialResponseBodyAvailable);
                             wroteToClient = true;
                         }
                     }
@@ -724,6 +742,20 @@ public class ProxyHandler {
                         OutputStream outDestination = upWrapOut;
                         if (cacheBuilder != null) {
                             outDestination = new TeeOutputStream(upWrapOut, cacheBuilder);
+                        }
+                        if (upWrapIn instanceof ChunkedInputStream && upWrapOut instanceof ChunkedOutputStream) {
+                            ChunkedInputStream chunkedIn = (ChunkedInputStream) upWrapIn;
+                            ChunkedOutputStream chunkedOut = (ChunkedOutputStream) upWrapOut;
+                            byte[] buffer = new byte[16384];
+                            int c;
+                            while ((c = upWrapIn.read(buffer, 0, buffer.length)) != -1) {
+                                if (chunkedIn.didReceiveTerminatorChunk()) chunkedOut.setBuffering(true);
+                                outDestination.write(buffer, 0, c);
+                                if (chunkedIn.didReceiveTerminatorChunk()) {
+                                    chunkedOut.setBuffering(false);
+                                    chunkedOut.flush();
+                                }
+                            }
                         }
                         Util.copy(upWrapIn, outDestination);
                         if (cacheBuilder != null) {
@@ -755,7 +787,7 @@ public class ProxyHandler {
                 try {
                     HttpHeader httpHeader = new HttpHeader("HTTP/1.1 408 Request Timeout", new CaseInsensitiveHashMap<>());
                     httpHeader.setHeader("Connection", "close");
-                    Util.writeHeader(clientOut, httpHeader);
+                    send(httpHeader, "408 Request Timeout");
                     clientOut.flush();
                 } catch (Exception e) {
                 }
@@ -827,6 +859,29 @@ public class ProxyHandler {
         }
     }
 
+    private void send(HttpHeader httpHeader, String content) throws IOException {
+        send(httpHeader, content.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private void send(HttpHeader httpHeader, byte[] content) throws IOException {
+        if (settings != null) addHstsHeader(httpHeader);
+        httpHeader.setHeader("Server", "Siggi-SimpleHttpProxy");
+        httpHeader.setHeader("Content-Length", Integer.toString(content.length));
+        httpHeader.setHeader("Cache-Control", "private, max-age=0");
+        if (httpHeader.getHeader("Content-Type") == null) {
+            httpHeader.setHeader("Content-Type", "text/plain; charset=utf-8");
+        }
+        keepAliveHeaders(httpHeader);
+        clientOut.startBuffering();
+        Util.writeHeader(clientOut, httpHeader);
+        if (head) {
+            clientOut.stopBuffering(false);
+            return;
+        }
+        clientOut.stopBuffering(content.length != 0);
+        clientOut.write(content);
+    }
+
     private void return200(String content) throws IOException {
         byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
         if (content.toLowerCase().contains("<html")) {
@@ -838,194 +893,95 @@ public class ProxyHandler {
 
     private void return200(byte[] content, String type) throws IOException {
         HttpHeader httpHeader = new HttpHeader("HTTP/1.1 200 OK", new CaseInsensitiveHashMap<>());
-        addHstsHeader(httpHeader);
-        httpHeader.setHeader("Server", "Siggi-SimpleHttpProxy");
-        httpHeader.setHeader("Content-Length", Integer.toString(content.length));
-        httpHeader.setHeader("Cache-Control", "private, max-age=0");
-        httpHeader.setHeader("Content-Type", "text/plain; charset=UTF-8");
-        keepAliveHeaders(httpHeader);
-        Util.writeHeader(clientOut, httpHeader);
-        clientOut.write(content);
+        httpHeader.setHeader("Content-Type", type);
+        send(httpHeader, content);
     }
 
     private void return301(String target) throws IOException {
         HttpHeader httpHeader = new HttpHeader("HTTP/1.1 301 Moved Permanently", new CaseInsensitiveHashMap<>());
-        addHstsHeader(httpHeader);
-        httpHeader.setHeader("Server", "Siggi-SimpleHttpProxy");
-        httpHeader.setHeader("Transfer-Encoding", "chunked");
-        httpHeader.setHeader("Cache-Control", "private, max-age=0");
-        httpHeader.setHeader("Content-Type", "text/plain; charset=UTF-8");
         httpHeader.setHeader("Location", target);
-        keepAliveHeaders(httpHeader);
-        Util.writeHeader(clientOut, httpHeader);
-        try (ChunkedOutputStream out = new ChunkedOutputStream(clientOut, false)) {
-            out.write(("301 Permanently Moved: " + target).getBytes());
-        }
+        send(httpHeader, "301 Permanently Moved: " + target);
     }
 
     private void return302(String target) throws IOException {
         HttpHeader httpHeader = new HttpHeader("HTTP/1.1 302 Found", new CaseInsensitiveHashMap<>());
-        addHstsHeader(httpHeader);
-        httpHeader.setHeader("Server", "Siggi-SimpleHttpProxy");
-        httpHeader.setHeader("Transfer-Encoding", "chunked");
-        httpHeader.setHeader("Cache-Control", "private, max-age=0");
-        httpHeader.setHeader("Content-Type", "text/plain; charset=UTF-8");
         httpHeader.setHeader("Location", target);
-        keepAliveHeaders(httpHeader);
-        Util.writeHeader(clientOut, httpHeader);
-        try (ChunkedOutputStream out = new ChunkedOutputStream(clientOut, false)) {
-            out.write(("302 Found: " + target).getBytes());
-        }
+        send(httpHeader, "302 Found: " + target);
     }
 
     private void return400() throws IOException {
         HttpHeader httpHeader = new HttpHeader("HTTP/1.1 400 Bad Request", new CaseInsensitiveHashMap<>());
-        if (settings != null) {
-            addHstsHeader(httpHeader);
-        }
-        httpHeader.setHeader("Server", "Siggi-SimpleHttpProxy");
-        httpHeader.setHeader("Transfer-Encoding", "chunked");
-        httpHeader.setHeader("Cache-Control", "private, max-age=0");
-        httpHeader.setHeader("Content-Type", "text/plain; charset=UTF-8");
-        keepAliveHeaders(httpHeader);
-        Util.writeHeader(clientOut, httpHeader);
-        try (ChunkedOutputStream out = new ChunkedOutputStream(clientOut, false)) {
-            out.write("400 Bad Request".getBytes());
-        }
+        send(httpHeader, "400 Bad Request");
     }
 
     private void return401BasicAuth(BasicAuth basicAuth) throws IOException {
         HttpHeader httpHeader = new HttpHeader("HTTP/1.1 401 Unauthorized", new CaseInsensitiveHashMap<>());
-        addHstsHeader(httpHeader);
-        httpHeader.setHeader("Server", "Siggi-SimpleHttpProxy");
-        httpHeader.setHeader("Transfer-Encoding", "chunked");
-        httpHeader.setHeader("Cache-Control", "private, max-age=0");
-        httpHeader.setHeader("Content-Type", "text/plain; charset=UTF-8");
         httpHeader.setHeader("WWW-Authenticate", "Basic realm=" + basicAuth.getRealm());
-        keepAliveHeaders(httpHeader);
-        Util.writeHeader(clientOut, httpHeader);
-        try (ChunkedOutputStream out = new ChunkedOutputStream(clientOut, false)) {
-            out.write("401 Unauthorized".getBytes());
-        }
+        send(httpHeader, "401 Unauthorized");
     }
 
     private void return404() throws IOException {
         HttpHeader httpHeader = new HttpHeader("HTTP/1.1 404 Not Found", new CaseInsensitiveHashMap<>());
-        addHstsHeader(httpHeader);
-        httpHeader.setHeader("Server", "Siggi-SimpleHttpProxy");
-        httpHeader.setHeader("Transfer-Encoding", "chunked");
-        httpHeader.setHeader("Cache-Control", "private, max-age=0");
-        httpHeader.setHeader("Content-Type", "text/plain; charset=UTF-8");
-        keepAliveHeaders(httpHeader);
-        Util.writeHeader(clientOut, httpHeader);
-        try (ChunkedOutputStream out = new ChunkedOutputStream(clientOut, false)) {
-            out.write("404 Not Found".getBytes());
-        }
+        send(httpHeader, "404 Not Found");
     }
 
     private void return500() throws IOException {
         HttpHeader httpHeader = new HttpHeader("HTTP/1.1 500 Internal Server Error", new CaseInsensitiveHashMap<>());
-        addHstsHeader(httpHeader);
-        httpHeader.setHeader("Server", "Siggi-SimpleHttpProxy");
-        httpHeader.setHeader("Transfer-Encoding", "chunked");
-        httpHeader.setHeader("Cache-Control", "private, max-age=15");
-        httpHeader.setHeader("Content-Type", "text/plain; charset=UTF-8");
         keepAlive = false;
-        keepAliveHeaders(httpHeader);
-        Util.writeHeader(clientOut, httpHeader);
-        try (ChunkedOutputStream out = new ChunkedOutputStream(clientOut, false)) {
-            out.write("500 Internal Server Error".getBytes());
-        }
+        send(httpHeader, "500 Internal Server Error");
     }
 
     private void return502() throws IOException {
         HttpHeader httpHeader = new HttpHeader("HTTP/1.1 502 Bad Gateway", new CaseInsensitiveHashMap<>());
-        addHstsHeader(httpHeader);
-        httpHeader.setHeader("Server", "Siggi-SimpleHttpProxy");
-        httpHeader.setHeader("Transfer-Encoding", "chunked");
-        httpHeader.setHeader("Cache-Control", "private, max-age=15");
-        httpHeader.setHeader("Content-Type", "text/plain; charset=UTF-8");
-        keepAliveHeaders(httpHeader);
-        Util.writeHeader(clientOut, httpHeader);
-        try (ChunkedOutputStream out = new ChunkedOutputStream(clientOut, false)) {
-            out.write("502 Bad Gateway".getBytes());
-        }
+        send(httpHeader, "502 Bad Gateway");
     }
 
     private void return503(String custom503) throws IOException {
-        File f = null;
+        byte[] custom503Content = null;
         if (custom503 != null) {
-            f = new File(custom503);
-            if (!f.exists()) {
-                f = null;
+            File f = new File(custom503);
+            if (f.exists()) {
+                try (InputStream in = Files.newInputStream(f.toPath())) {
+                    ByteArrayOutputStream out = new ByteArrayOutputStream();
+                    Util.copy(in, out);
+                    custom503Content = out.toByteArray();
+                } catch (IOException ignored) {
+                }
             }
         }
         HttpHeader httpHeader = new HttpHeader("HTTP/1.1 503 Service Unavailable", new CaseInsensitiveHashMap<>());
-        addHstsHeader(httpHeader);
-        httpHeader.setHeader("Server", "Siggi-SimpleHttpProxy");
-        if (f != null) {
-            httpHeader.setHeader("Content-Length", Long.toString(f.length()));
-        } else {
-            httpHeader.setHeader("Transfer-Encoding", "chunked");
-        }
         httpHeader.setHeader("Cache-Control", "private, max-age=15");
-        httpHeader.setHeader("Content-Type", "text/" + (f == null ? "plain" : "html") + "; charset=UTF-8");
-        keepAliveHeaders(httpHeader);
-        Util.writeHeader(clientOut, httpHeader);
-        if (f != null) {
-            try (InputStream in = Files.newInputStream(f.toPath())) {
-                Util.copy(in, clientOut);
-            }
+        httpHeader.setHeader("Content-Type", "text/" + (custom503Content == null ? "plain" : "html") + "; charset=UTF-8");
+        if (custom503Content != null) {
+            send(httpHeader, custom503Content);
         } else {
-            try (ChunkedOutputStream out = new ChunkedOutputStream(clientOut, false)) {
-                out.write("503 Service Unavailable".getBytes());
-            }
+            send(httpHeader, "503 Service Unavailable");
         }
     }
 
     private void youAreBanned(String ip) throws IOException {
         HttpHeader httpHeader = new HttpHeader("HTTP/1.1 403 Forbidden", new CaseInsensitiveHashMap<>());
-        addHstsHeader(httpHeader);
-        httpHeader.setHeader("Server", "Siggi-SimpleHttpProxy");
-        httpHeader.setHeader("Transfer-Encoding", "chunked");
-        httpHeader.setHeader("Cache-Control", "private, max-age=120");
-        httpHeader.setHeader("Content-Type", "text/plain; charset=UTF-8");
-        keepAliveHeaders(httpHeader);
-        Util.writeHeader(clientOut, httpHeader);
-        try (ChunkedOutputStream out = new ChunkedOutputStream(clientOut, false)) {
-            out.write(("Your IP address (" + ip + ") is permanently banned from accessing this server.").getBytes());
-        }
+        send(httpHeader, "Your IP address (" + ip + ") is permanently banned from accessing this server.");
     }
 
     private void rateLimit(String host, String path, String ip) throws IOException {
         HttpHeader httpHeader = new HttpHeader("HTTP/1.1 429 Too Many Requests", new CaseInsensitiveHashMap<>());
-        addHstsHeader(httpHeader);
         File f = proxyServer.get429File(host);
-        int length = (int) f.length();
-        httpHeader.setHeader("Server", "Siggi-SimpleHttpProxy");
-        httpHeader.setHeader("Cache-Control", "private, max-age=15");
-        httpHeader.setHeader("Content-Length", Integer.toString(length));
-        httpHeader.setHeader("Content-Type", "text/html; charset=UTF-8");
-        keepAliveHeaders(httpHeader);
-        Util.writeHeader(clientOut, httpHeader);
-        try (FileInputStream in = new FileInputStream(f)) {
-            byte[] b = new byte[4096];
-            int amountWritten = 0;
-            int c;
-            while (amountWritten < length) {
-                c = in.read(b, 0, Math.min(b.length, length - amountWritten));
-                if (c == -1) {
-                    break;
-                }
-                clientOut.write(b, 0, c);
-                amountWritten += c;
-            }
-            while (amountWritten < length) {
-                clientOut.write(0);
-                amountWritten += 1;
-            }
-        } catch (Exception e) {
+        byte[] pageContent = null;
+        String type;
+        try (InputStream in = Files.newInputStream(f.toPath())) {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            Util.copy(in, out);
+            pageContent = out.toByteArray();
         }
+        if (pageContent == null) {
+            pageContent = "429 Too Many Requests".getBytes(StandardCharsets.UTF_8);
+            type = "text/plain; charset=utf-8";
+        } else {
+            type = "text/html; charset=utf-8";
+        }
+        httpHeader.setHeader("Content-Type", type);
+        send(httpHeader, pageContent);
     }
 
     private void log(String msg) {

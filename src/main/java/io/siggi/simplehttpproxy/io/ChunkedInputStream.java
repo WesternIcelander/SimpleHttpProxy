@@ -46,13 +46,15 @@ public final class ChunkedInputStream extends InputStream {
         decodeCharset['f'] = 15;
     }
 
-    private long readChunkSize() throws IOException {
+    private long readChunkSize(boolean needNow) throws IOException {
         if (expectCRLFBeforeChunkSize) {
+            if (!needNow && in.available() < 2) return -1L;
             if (in.read() != 0x0D || in.read() != 0x0A) {
                 throw new IOException("Expected CRLF at end of chunk");
             }
+            expectCRLFBeforeChunkSize = false;
         }
-        expectCRLFBeforeChunkSize = true;
+        if (!needNow && in.available() < 1) return -1L;
         long size = 0L;
         int sizeOfSize = 0;
         do {
@@ -65,6 +67,7 @@ public final class ChunkedInputStream extends InputStream {
                             throw new IOException("Expected CRLF at end of chunk");
                         }
                     }
+                    expectCRLFBeforeChunkSize = true;
                     return size;
                 } else {
                     throw new IOException("Malformed chunk size encoding");
@@ -101,7 +104,7 @@ public final class ChunkedInputStream extends InputStream {
         }
         int maxRead;
         if (remainingInChunk <= 0L) {
-            remainingInChunk = readChunkSize();
+            remainingInChunk = readChunkSize(true);
             if (remainingInChunk == 0L) {
                 endOfStream = true;
                 return -1;
@@ -120,7 +123,7 @@ public final class ChunkedInputStream extends InputStream {
         }
         remainingInChunk -= readAmount;
         if (remainingInChunk == 0L) {
-            remainingInChunk = readChunkSize();
+            remainingInChunk = readChunkSize(false);
             if (remainingInChunk == 0L) {
                 endOfStream = true;
             }

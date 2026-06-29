@@ -50,7 +50,8 @@ public class ProxyHandler {
     private String lastAddr = null;
     private Socket serverSocket;
     private SometimesTimeoutInputStream serverIn;
-    private OutputStream serverOut;
+    private ToggleableBufferedOutputStream serverOut;
+    private OutputStream rawServerOut;
     private boolean head = false;
     private boolean keepAlive = true;
     private boolean started = false;
@@ -575,7 +576,7 @@ public class ProxyHandler {
                                 continue outerLoop;
                             }
                             serverIn = new SometimesTimeoutInputStream(serverSocket.getInputStream());
-                            serverOut = serverSocket.getOutputStream();
+                            serverOut = new ToggleableBufferedOutputStream(rawServerOut = serverSocket.getOutputStream());
                             Util.writeHeader(serverOut, downstreamHeaders);
                             wrappedOut = downstreamHeaders.wrapOutputStream(serverOut);
                             lastHost = host;

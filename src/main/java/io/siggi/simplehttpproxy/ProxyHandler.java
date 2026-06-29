@@ -9,6 +9,7 @@ import io.siggi.simplehttpproxy.io.SecureBufferedInputStream;
 import io.siggi.simplehttpproxy.io.SometimesTimeoutInputStream;
 import io.siggi.simplehttpproxy.io.SubInputStream;
 import io.siggi.simplehttpproxy.io.TeeOutputStream;
+import io.siggi.simplehttpproxy.io.ToggleableBufferedOutputStream;
 import io.siggi.simplehttpproxy.net.SslProxy;
 import io.siggi.simplehttpproxy.util.CaseInsensitiveHashMap;
 import io.siggi.simplehttpproxy.util.CloudFlare;
@@ -42,7 +43,8 @@ public class ProxyHandler {
     private final boolean allowConnectionReuse = true;
     private Socket clientSocket;
     private SecureBufferedInputStream clientIn;
-    private OutputStream clientOut;
+    private ToggleableBufferedOutputStream clientOut;
+    private OutputStream rawClientOut;
     private List<String> injectXForwardedFor = null;
     private String lastHost = null;
     private String lastAddr = null;
@@ -168,7 +170,7 @@ public class ProxyHandler {
                 ssl.setTcpNoDelay(true);
             }
             clientIn = new SecureBufferedInputStream(clientSocket.getInputStream(), 131072);
-            clientOut = clientSocket.getOutputStream();
+            clientOut = new ToggleableBufferedOutputStream(rawClientOut = clientSocket.getOutputStream());
         } catch (Exception e) {
             log("Failed to establish connection with client", e);
             try {

@@ -49,6 +49,7 @@ public class ProxyHandler {
     private Socket serverSocket;
     private SometimesTimeoutInputStream serverIn;
     private OutputStream serverOut;
+    private boolean head = false;
     private boolean keepAlive = true;
     private boolean started = false;
     private ForwardingSettingsMatch settingsMatch = null;
@@ -218,6 +219,7 @@ public class ProxyHandler {
                     receivedRequest = false;
                     send408 = true;
                     downstreamHeaders = Util.readHeader(clientIn, 16384);
+                    head = downstreamHeaders.getFirstLine().startsWith("HEAD ");
                     send408 = false;
                     receivedRequest = true;
                     if (downstreamHeaders == null) {
@@ -347,7 +349,6 @@ public class ProxyHandler {
                     }
                     if (downstreamHeaders.getFirstLine().startsWith("GET ")
                             || downstreamHeaders.getFirstLine().startsWith("HEAD ")) {
-                        boolean head = downstreamHeaders.getFirstLine().startsWith("HEAD ");
                         // Direct serve files if they exist
                         if (path.contains("?")) {
                             path = path.substring(0, path.indexOf("?"));

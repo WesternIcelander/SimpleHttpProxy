@@ -847,6 +847,7 @@ public class ProxyHandler {
     }
 
     private void keepAliveHeaders(HttpHeader httpHeader) {
+        if (proxyServer.connectionsMustShutdown()) keepAlive = false;
         if (keepAlive) {
             httpHeader.setHeader("Connection", "Keep-Alive");
             httpHeader.setHeader("Keep-Alive", "timeout=60");

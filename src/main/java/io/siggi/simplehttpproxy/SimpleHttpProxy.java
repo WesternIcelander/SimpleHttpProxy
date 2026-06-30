@@ -86,6 +86,7 @@ public class SimpleHttpProxy {
     private boolean transparentProxy = false;
     private long lastLoadFactories = 0L;
     private RateLimitController rateLimitController;
+    private long connectionShutdownDeadline = 0L;
 
     {
         try (BufferedReader reader = new BufferedReader(new FileReader("bannedips.txt"))) {
@@ -243,7 +244,13 @@ public class SimpleHttpProxy {
             Thread.sleep(1000L);
         } catch (Exception e) {
         }
+        connectionShutdownDeadline = System.currentTimeMillis() + 10000L;
         System.err.println("Launcher-Exit");
+    }
+
+    public boolean connectionsMustShutdown() {
+        return connectionShutdownDeadline != 0L &&
+                System.currentTimeMillis() >= connectionShutdownDeadline;
     }
 
     String getAddr(int port, String host) {

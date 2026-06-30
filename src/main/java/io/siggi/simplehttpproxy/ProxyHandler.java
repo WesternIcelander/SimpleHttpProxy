@@ -751,10 +751,7 @@ public class ProxyHandler {
                             while ((c = upWrapIn.read(buffer, 0, buffer.length)) != -1) {
                                 if (chunkedIn.didReceiveTerminatorChunk()) chunkedOut.setBuffering(true);
                                 outDestination.write(buffer, 0, c);
-                                if (chunkedIn.didReceiveTerminatorChunk()) {
-                                    chunkedOut.setBuffering(false);
-                                    chunkedOut.flush();
-                                }
+                                if (chunkedIn.didReceiveTerminatorChunk()) chunkedOut.setBuffering(false);
                             }
                         }
                         Util.copy(upWrapIn, outDestination);

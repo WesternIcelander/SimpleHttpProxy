@@ -6,6 +6,7 @@ import io.siggi.simplehttpproxy.cache.CacheManager;
 import io.siggi.simplehttpproxy.cache.CacheObject;
 import io.siggi.simplehttpproxy.io.ChunkedInputStream;
 import io.siggi.simplehttpproxy.io.ChunkedOutputStream;
+import io.siggi.simplehttpproxy.io.ResetDetectingInputStream;
 import io.siggi.simplehttpproxy.io.SecureBufferedInputStream;
 import io.siggi.simplehttpproxy.io.SometimesTimeoutInputStream;
 import io.siggi.simplehttpproxy.io.SubInputStream;
@@ -44,6 +45,10 @@ public class ProxyHandler {
     // TODO: make this configurable
     private final boolean allowConnectionReuse = true;
     private Socket clientSocket;
+    // the underlying TCP socket, even if clientSocket gets replaced with a layered SSLSocket
+    private final Socket rawClientSocket;
+    // set when the backend reset the connection mid-response, so we must reset the client too
+    private boolean resetClient = false;
     private SecureBufferedInputStream clientIn;
     private ToggleableBufferedOutputStream clientOut;
     private OutputStream rawClientOut;
@@ -63,6 +68,7 @@ public class ProxyHandler {
         this.proxyServer = proxyServer;
         this.cacheManager = proxyServer.getCacheManager();
         this.clientSocket = clientSocket;
+        this.rawClientSocket = clientSocket;
         this.secure = secure;
         clientSocket.setTcpNoDelay(true);
         clientSocket.setSoTimeout(120000); // we announce Keep-Alive timeout=60, but we'll wait up to 2 minutes
@@ -517,6 +523,7 @@ public class ProxyHandler {
                     }
                     HttpHeader upstreamHeaders = null;
                     HttpHeader forwardedUpstreamHeaders = null;
+                    boolean closeDelimited = false;
                     String logLineA = logLine;
                     int tries = -1;
                     String cacheIdentifier = backendServer + downstreamPath;
@@ -715,7 +722,13 @@ public class ProxyHandler {
                                 upstreamHeaders.setHeader("X-SHP-Cache", cacheBuilder == null ? "skipped" : "miss");
                             }
                             injectHeaders(settings.injectHeadersToClient, upstreamHeaders);
-                            if (!upstreamKeepAlive && upstreamHeaders.getHeader("Content-Encoding") != null) {
+                            closeDelimited = cacheObject == null && !isHeadMethod && isCloseDelimited(upstreamHeaders);
+                            if (closeDelimited) {
+                                // The body ends when the backend closes the connection, forward it as is
+                                // and close the client connection to mark the end of the response.
+                                keepAlive = false;
+                                forwardedUpstreamHeaders = upstreamHeaders;
+                            } else if (!upstreamKeepAlive && upstreamHeaders.getHeader("Content-Encoding") != null) {
                                 // Some webapps report uncompressed Content-Length when sending compressed data
                                 // This is incorrect behaviour
                                 // They also tend to send Connection: close
@@ -736,28 +749,45 @@ public class ProxyHandler {
                     }
                     InputStream upWrapIn = cacheObject != null
                             ? cacheObject.getInputStream()
-                            : (isHeadMethod ? null : upstreamHeaders.wrapInputStream(serverIn));
-                    OutputStream upWrapOut = isHeadMethod ? null : forwardedUpstreamHeaders.wrapOutputStream(clientOut);
+                            : (isHeadMethod ? null : (closeDelimited ? serverIn : upstreamHeaders.wrapInputStream(serverIn)));
+                    OutputStream upWrapOut = isHeadMethod ? null : (closeDelimited ? clientOut : forwardedUpstreamHeaders.wrapOutputStream(clientOut));
                     if (upWrapIn != null && upWrapOut != null) {
                         OutputStream outDestination = upWrapOut;
                         if (cacheBuilder != null) {
                             outDestination = new TeeOutputStream(upWrapOut, cacheBuilder);
                         }
-                        if (upWrapIn instanceof ChunkedInputStream && upWrapOut instanceof ChunkedOutputStream) {
-                            ChunkedInputStream chunkedIn = (ChunkedInputStream) upWrapIn;
-                            ChunkedOutputStream chunkedOut = (ChunkedOutputStream) upWrapOut;
-                            byte[] buffer = new byte[16384];
-                            int c;
-                            while ((c = upWrapIn.read(buffer, 0, buffer.length)) != -1) {
-                                if (chunkedIn.didReceiveTerminatorChunk()) chunkedOut.setBuffering(true);
-                                outDestination.write(buffer, 0, c);
-                                if (chunkedIn.didReceiveTerminatorChunk()) chunkedOut.setBuffering(false);
+                        // Detect a TCP RST from the backend while reading the body (any framing)
+                        ResetDetectingInputStream bodyIn = cacheObject == null ? new ResetDetectingInputStream(upWrapIn) : null;
+                        InputStream readFrom = bodyIn != null ? bodyIn : upWrapIn;
+                        try {
+                            if (upWrapIn instanceof ChunkedInputStream && upWrapOut instanceof ChunkedOutputStream) {
+                                ChunkedInputStream chunkedIn = (ChunkedInputStream) upWrapIn;
+                                ChunkedOutputStream chunkedOut = (ChunkedOutputStream) upWrapOut;
+                                byte[] buffer = new byte[16384];
+                                int c;
+                                while ((c = readFrom.read(buffer, 0, buffer.length)) != -1) {
+                                    if (chunkedIn.didReceiveTerminatorChunk()) chunkedOut.setBuffering(true);
+                                    outDestination.write(buffer, 0, c);
+                                    if (chunkedIn.didReceiveTerminatorChunk()) chunkedOut.setBuffering(false);
+                                }
                             }
+                            Util.copy(readFrom, outDestination);
+                        } catch (IOException e) {
+                            if (bodyIn == null || !bodyIn.wasReset()) throw e;
+                            // The backend reset the connection, so the response is incomplete.
+                            // Don't cache it, don't finish the chunked stream, and pass the reset on to the client.
+                            logLine += " (backend reset connection)";
+                            resetClient = true;
+                            keepAlive = false;
+                            continue;
                         }
-                        Util.copy(upWrapIn, outDestination);
                         if (cacheBuilder != null) {
                             cacheBuilder.finished();
                         }
+                    }
+                    if (closeDelimited) {
+                        // the client connection is closed after this to mark the end of the body
+                        clientOut.flush();
                     }
                     if (upWrapOut instanceof ChunkedOutputStream) {
                         upWrapOut.close();
@@ -820,6 +850,20 @@ public class ProxyHandler {
                 }
             }
             if (!doNotClose) {
+                if (resetClient) {
+                    // Mirror the backend's TCP RST: flush what we have, then close the raw TCP socket
+                    // with SO_LINGER 0 so the kernel sends RST instead of FIN. We skip the TLS
+                    // close_notify on purpose, as it would make the truncated response look complete.
+                    try {
+                        clientOut.flush();
+                    } catch (Exception e) {
+                    }
+                    try {
+                        rawClientSocket.setSoLinger(true, 0);
+                        rawClientSocket.close();
+                    } catch (Exception e) {
+                    }
+                }
                 try {
                     clientSocket.close();
                 } catch (Exception e) {
@@ -844,6 +888,35 @@ public class ProxyHandler {
                 headers.setHeader(key, val);
             }
         }
+    }
+
+    /**
+     * A response whose body is delimited by the backend closing the connection:
+     * it may have a body, but has neither Transfer-Encoding: chunked nor Content-Length.
+     * The caller must exclude responses to HEAD requests.
+     */
+    private static boolean isCloseDelimited(HttpHeader responseHeaders) {
+        String firstLine = responseHeaders.getFirstLine();
+        int space = firstLine.indexOf(" ");
+        if (space >= 0) {
+            String status = firstLine.substring(space + 1);
+            // 1xx, 204 and 304 responses never have a body
+            if (status.startsWith("1") || status.startsWith("204") || status.startsWith("304")) {
+                return false;
+            }
+        }
+        String transferEncoding = responseHeaders.getHeader("Transfer-Encoding");
+        if (transferEncoding != null && transferEncoding.equalsIgnoreCase("chunked")) {
+            return false;
+        }
+        String contentLength = responseHeaders.getHeader("Content-Length");
+        if (contentLength != null) {
+            try {
+                if (Long.parseLong(contentLength) >= 0L) return false;
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return true;
     }
 
     private void keepAliveHeaders(HttpHeader httpHeader) {

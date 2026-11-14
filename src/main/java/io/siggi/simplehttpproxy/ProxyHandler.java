@@ -329,6 +329,9 @@ public class ProxyHandler {
                     String userAgent = downstreamHeaders.getHeader("User-Agent");
                     downstreamHeaders.setHeader("X-Forwarded-For", forwardedFor);
                     downstreamHeaders.setHeader("X-Forwarded-Proto", clientSocket instanceof SSLSocket ? "https" : "http");
+                    // Backends may trust CF-Connecting-IP as the client address, but any client can send it.
+                    // The client IP is already conveyed through X-Forwarded-For, so never pass it on.
+                    downstreamHeaders.deleteHeader("CF-Connecting-IP");
                     {
                         String logIP;
                         if (viaString == null || viaString.isEmpty()) {

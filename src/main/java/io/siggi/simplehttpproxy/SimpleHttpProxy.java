@@ -366,6 +366,10 @@ public class SimpleHttpProxy {
                                         currentSettings.basicAuthFile = val;
                                     }
                                     break;
+                                    case "apikeyfile": {
+                                        currentSettings.apiKeyFile = val;
+                                    }
+                                    break;
                                     case "hsts": {
                                         currentSettings.hstsTimeout = Long.parseLong(val);
                                     }

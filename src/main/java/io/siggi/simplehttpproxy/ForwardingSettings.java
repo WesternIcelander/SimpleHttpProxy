@@ -20,6 +20,7 @@ class ForwardingSettings {
     public boolean alwaysCloseConnection = false;
     public BasicAuthCondition basicAuthCondition = BasicAuthCondition.NEVER;
     public String basicAuthFile = null;
+    public String apiKeyFile = null;
     public long hstsTimeout = -1L;
     public boolean hstsIncludeSubdomains = false;
     public boolean hstsPreload = false;
@@ -82,6 +83,17 @@ class ForwardingSettings {
             try {
                 return new BasicAuth(new File("basicauth/" + basicAuthFile));
             } catch (Exception e) {
+            }
+        }
+        return null;
+    }
+
+    public ApiKeys getApiKeys() {
+        if (apiKeyFile != null) {
+            try {
+                return new ApiKeys(new File("apikey/" + apiKeyFile));
+            } catch (Exception e) {
+                return new ApiKeys();
             }
         }
         return null;

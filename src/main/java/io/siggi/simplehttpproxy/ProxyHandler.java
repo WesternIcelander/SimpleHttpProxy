@@ -469,6 +469,12 @@ public class ProxyHandler {
                         }
                         continue;
                     }
+                    if (settings.apiKeyFile != null) {
+                        if (!settings.getApiKeys().checkKey(downstreamHeaders.getHeader("X-Api-Key"))) {
+                            return403();
+                            continue;
+                        }
+                    }
                     switch (settings.basicAuthCondition) {
                         case ALL_EXCEPT_SAFE_AND_POST:
                             if (downstreamHeaders.getFirstLine().toUpperCase().startsWith("POST ")) {
@@ -992,6 +998,11 @@ public class ProxyHandler {
         HttpHeader httpHeader = new HttpHeader("HTTP/1.1 401 Unauthorized", new CaseInsensitiveHashMap<>());
         httpHeader.setHeader("WWW-Authenticate", "Basic realm=" + basicAuth.getRealm());
         send(httpHeader, "401 Unauthorized");
+    }
+
+    private void return403() throws IOException {
+        HttpHeader httpHeader = new HttpHeader("HTTP/1.1 403 Forbidden", new CaseInsensitiveHashMap<>());
+        send(httpHeader, "403 Forbidden");
     }
 
     private void return404() throws IOException {
